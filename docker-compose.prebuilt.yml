@@ -1,0 +1,19 @@
+# Prebuilt overlay: pull versioned, multi-arch images from GHCR instead of compiling locally, so a
+# target machine never builds. Published by .github/workflows/release.yml on a `v*` tag.
+#
+#   REGISTRY=ghcr.io/<owner> IMAGE_TAG=v0.1.0 \
+#     docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up --wait
+#
+# `build: !reset null` removes the local build config inherited from the base file (Compose ≥ 2.24),
+# so `up` pulls the pinned image rather than building. Combine with docker-compose.full.yml for a
+# prebuilt full-mode run.
+services:
+  api:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/OWNER}/firm-ontology-api:${IMAGE_TAG:-latest}
+    pull_policy: always
+
+  web:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/OWNER}/firm-ontology-web:${IMAGE_TAG:-latest}
+    pull_policy: always

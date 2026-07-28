@@ -1,0 +1,48 @@
+# Keep the build context small and secret-free. Each Dockerfile COPYs only the paths it needs;
+# this is the belt-and-suspenders exclude list so nothing stray (or secret) enters any image.
+
+# Secrets — never in an image.
+.env
+.env.local
+*.pem
+*.key
+
+# VCS / CI / editor
+.git
+.github
+.gitignore
+.claude
+.DS_Store
+**/.DS_Store
+
+# Python caches / local venv
+.venv
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+build
+dist
+
+# Node / web build artifacts (the web image runs `npm ci` + `npm run build` itself)
+web/node_modules
+web/dist
+**/*.tsbuildinfo
+
+# Runtime state + downloaded/cached data (regenerated in-container)
+data
+.run
+logs
+corpus/downloads
+.fastembed_cache
+.cassettes
+.neo4j
+
+# Not needed inside either image
+tests
+bugs
+docs
+*.md
+!README.md

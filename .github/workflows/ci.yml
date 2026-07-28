@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Offline by design: FakeProvider + HashEmbedder. No ANTHROPIC_API_KEY, no live Neo4j, no model
+# pulls in the test job. (The image-build job does fetch base images + bake the embed model — that
+# needs network, but still no Anthropic key and no database.)
+env:
+  PROVIDER_MODE: stub
+  EMBED_BACKEND: hash
+
+jobs:
+  offline-gate:
+    name: lint + pytest (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Pin Python 3.12
+        run: uv python pin 3.12
+
+      - name: Sync deps (core + dev)
+        run: uv sync --frozen --extra dev
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy (best-effort)
+        run: uv run mypy api
+        continue-on-error: true
+
+      - name: Pytest (offline; DB-backed tests self-skip)
+        run: uv run pytest
+
+      - name: models.lock is in sync
+        run: uv run python scripts/write_models_lock.py --check
+
+      - name: Snapshot is committed + consistent
+        run: |
+          uv run python -m api.snapshot --write
+          git diff --exit-code corpus/snapshot \
+            || (echo "corpus/snapshot is stale — run 'make snapshot' and commit" && exit 1)
+
+  compose-config:
+    name: docker compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate stub, full, and prebuilt compositions
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.full.yml config --quiet
+          REGISTRY=ghcr.io/example IMAGE_TAG=v0 \
+            docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml config --quiet
+          echo "all compose files valid"
+
+  build-images:
+    name: build images (buildx, amd64 + arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Build both images for both target arches (no push — a compile/bake smoke). The api build
+      # also proves the fastembed model bakes cleanly; the web build proves the SPA compiles.
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web

@@ -1,0 +1,92 @@
+name: release
+
+# Tag a release (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to publish multi-arch images to
+# GHCR and attach the compose files + snapshot, so a target machine can run the stack without ever
+# compiling:
+#   REGISTRY=ghcr.io/<owner> IMAGE_TAG=v0.1.0 \
+#     docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up --wait
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the GitHub Release + upload assets
+  packages: write   # push images to GHCR
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR image namespace must be lowercase.
+      - name: Compute image refs
+        id: refs
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "registry=ghcr.io/${owner}" >> "$GITHUB_OUTPUT"
+          echo "api=ghcr.io/${owner}/firm-ontology-api" >> "$GITHUB_OUTPUT"
+          echo "web=ghcr.io/${owner}/firm-ontology-web" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push api (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.refs.outputs.api }}:${{ steps.refs.outputs.version }}
+            ${{ steps.refs.outputs.api }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build + push web (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.refs.outputs.web }}:${{ steps.refs.outputs.version }}
+            ${{ steps.refs.outputs.web }}:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Package the committed graph snapshot
+        run: tar -czf snapshot-${{ steps.refs.outputs.version }}.tgz corpus/snapshot
+
+      - name: Create GitHub Release with compose files + snapshot
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.refs.outputs.version }}
+          generate_release_notes: true
+          body: |
+            Prebuilt multi-arch images:
+              - `${{ steps.refs.outputs.api }}:${{ steps.refs.outputs.version }}`
+              - `${{ steps.refs.outputs.web }}:${{ steps.refs.outputs.version }}`
+
+            Run without building:
+            ```bash
+            REGISTRY=${{ steps.refs.outputs.registry }} IMAGE_TAG=${{ steps.refs.outputs.version }} \
+              docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up --wait
+            # open http://localhost:5173
+            ```
+          files: |
+            docker-compose.yml
+            docker-compose.prebuilt.yml
+            docker-compose.full.yml
+            snapshot-${{ steps.refs.outputs.version }}.tgz

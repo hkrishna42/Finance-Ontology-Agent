@@ -1,0 +1,17 @@
+# Full-mode overlay: real Claude extraction/narration + fastembed embeddings.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.full.yml up --build --wait
+#
+# Requires a .env (gitignored) in the repo root with a funded key:
+#   ANTHROPIC_API_KEY=sk-ant-...
+# The key is injected ONLY here, via env_file — never baked into an image, never committed. The
+# explicit `environment:` below wins over env_file, so the mode is forced to full/fastembed
+# regardless of what PROVIDER_MODE/EMBED_BACKEND happen to say in .env.
+services:
+  api:
+    env_file:
+      - .env
+    environment:
+      PROVIDER_MODE: full
+      EMBED_BACKEND: fastembed
+      # ANTHROPIC_API_KEY is supplied by env_file above.
