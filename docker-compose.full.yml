@@ -9,8 +9,11 @@
 # regardless of what PROVIDER_MODE/EMBED_BACKEND happen to say in .env.
 services:
   api:
+    # Optional so `docker compose config` validates without a .env present (e.g. in CI); a real
+    # full-mode run still needs .env with ANTHROPIC_API_KEY (bootstrap.sh enforces that up front).
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       PROVIDER_MODE: full
       EMBED_BACKEND: fastembed

@@ -27,8 +27,10 @@ jobs:
       - name: Pin Python 3.12
         run: uv python pin 3.12
 
-      - name: Sync deps (core + dev)
-        run: uv sync --frozen --extra dev
+      - name: Sync deps (core + dev + ingest)
+        # ingest (edgartools/bs4/lxml — no torch) is needed so the onboarding tests import;
+        # they still run fully offline (the EDGAR/GLEIF network is mocked).
+        run: uv sync --frozen --extra dev --extra ingest
 
       - name: Ruff
         run: uv run ruff check .
