@@ -22,10 +22,14 @@ from fastapi.testclient import TestClient
 
 from api.contracts.events import EventType, make_event
 from api.firms import store as fs
+from api.ingest import sources
+from api.ingest.sources import SourceDoc
 from api.onboarding import discovery
+from api.onboarding import pipeline as onboarding_pipeline
 from api.onboarding import routes as onboarding_routes
 from api.onboarding.pipeline import onboard_firm
 from api.onboarding.routes import router as onboarding_router
+from api.providers.fake import FakeProvider
 from api.stores.sqlite import connect, init_db
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "nport"
@@ -54,13 +58,17 @@ CANDIDATE = {
 
 
 class FakeStore:
-    """Records every Cypher call; returns no rows."""
+    """Records every Cypher call; returns the canned holdings for the enrich top-holdings query
+    (empty by default → enrichment is a structural no-op), else no rows."""
 
-    def __init__(self) -> None:
+    def __init__(self, holdings: list[dict] | None = None) -> None:
+        self.holdings = holdings or []
         self.calls: list[tuple[str, dict]] = []
 
     def run(self, query: str, **params) -> list:
         self.calls.append((query, params))
+        if "sum(h.weight_pct)" in query:  # enrich's _TOP_HOLDINGS query
+            return list(self.holdings)
         return []
 
     def close(self) -> None:  # pragma: no cover - lifecycle no-op
@@ -114,7 +122,8 @@ def test_onboard_emits_sequence_and_links_managed_by(stub_discovery):
     conn = init_db(connect(":memory:"))
     resolver = StubResolver({"NVIDIA", "Microsoft"})
     try:
-        events = list(onboard_firm(PICKED, store=store, conn=conn, resolver=resolver))
+        # enrich=False → the pure structural path (no auto-enrichment stage)
+        events = list(onboard_firm(PICKED, store=store, conn=conn, resolver=resolver, enrich=False))
     finally:
         conn.close()
 
@@ -126,6 +135,8 @@ def test_onboard_emits_sequence_and_links_managed_by(stub_discovery):
         EventType.RESOLVED,
         EventType.JOB_COMPLETED,
     ]
+    # enrich=False skips the enriching stage entirely
+    assert all(e.data.get("stage") != "enriching" for e in events)
     # seq is monotonic 0..n and every event carries the same job_id
     assert [e.seq for e in events] == list(range(len(events)))
     assert len({e.job_id for e in events}) == 1
@@ -143,6 +154,7 @@ def test_onboard_emits_sequence_and_links_managed_by(stub_discovery):
     assert by[EventType.JOB_COMPLETED].data["firm_id"] == FIRM_ID
     assert by[EventType.JOB_COMPLETED].data["funds"] == 1
     assert by[EventType.JOB_COMPLETED].data["holdings"] == 9
+    assert "enrichment" not in by[EventType.JOB_COMPLETED].data  # enrich=False → no enrich counts
 
     # firm Company MERGE, Fund MERGE, 9 HOLDS, and the MANAGED_BY link are all written
     assert store.queries("MERGE (firm:Company {name: $n})"), "firm Company node not MERGEd"
@@ -167,7 +179,8 @@ def test_registry_row_transitions_onboarding_to_ready_active(stub_discovery):
     fs.ensure_demo_firm(conn)  # demo firm exists and is the active one
     resolver = StubResolver({"NVIDIA"})
     try:
-        gen = onboard_firm(PICKED, store=store, conn=conn, resolver=resolver)
+        # enrich=False keeps this focused on the structural registry lifecycle
+        gen = onboard_firm(PICKED, store=store, conn=conn, resolver=resolver, enrich=False)
 
         ev0 = next(gen)  # job.started yields BEFORE the registry write
         assert ev0.event == EventType.JOB_STARTED
@@ -221,7 +234,8 @@ def test_search_route_blank_query_is_200_empty(stub_discovery):
 def test_onboard_route_streams_sse(monkeypatch):
     """The route bridges the sync generator to SSE (worker thread + queue), like the ingest route."""
 
-    def fake_onboard(picked, *, settings=None, store=None, conn=None, resolver=None):
+    def fake_onboard(picked, *, settings=None, store=None, conn=None, resolver=None,
+                     enrich=True, provider=None):
         yield make_event(EventType.JOB_STARTED, "onboard-x", seq=0, firm=picked["name"])
         yield make_event(EventType.RESOLVED, "onboard-x", seq=1, merged=0, provisional=0)
         yield make_event(EventType.JOB_COMPLETED, "onboard-x", seq=2, ok=True)
@@ -240,6 +254,123 @@ def test_onboard_route_streams_sse(monkeypatch):
     assert events[-1] == "job.completed"
 
 
+def test_onboard_route_threads_enrich_flag(monkeypatch):
+    """The route reads `enrich` from the body (default True) and threads it into onboard_firm."""
+    seen: dict[str, object] = {}
+
+    def fake_onboard(picked, *, settings=None, store=None, conn=None, resolver=None,
+                     enrich=True, provider=None):
+        seen["enrich"] = enrich
+        yield make_event(EventType.JOB_STARTED, "onboard-x", seq=0, firm=picked["name"])
+        yield make_event(EventType.JOB_COMPLETED, "onboard-x", seq=1, ok=True)
+
+    monkeypatch.setattr(onboarding_routes, "onboard_firm", fake_onboard)
+
+    with _app().stream(
+        "POST", "/firms/onboard", json={"name": "X", "series": [], "enrich": False}
+    ) as r:
+        assert r.status_code == 200
+        list(r.iter_lines())
+    assert seen["enrich"] is False
+
+
 def test_onboard_route_requires_name():
     r = _app().post("/firms/onboard", json={"series": []})
     assert r.status_code == 400
+
+
+# --- auto-enrichment: the final "enriching" stage of onboarding -----------------------------
+
+
+def test_onboard_auto_enriches_and_writes_chunks(stub_discovery, monkeypatch):
+    """Default onboarding layers semantic filing data: enrich_firm's events are forwarded as an
+    'enriching' stage and real :Chunk nodes land for the firm (no longer empty)."""
+
+    def fake_edgar(*, ticker=None, form=None, sections=None, **kw) -> SourceDoc:
+        return SourceDoc(
+            doc_id=f"{ticker}_10k_1a",
+            doc_type="10-K",
+            sensitivity="public",
+            text="Acme Corp faces intense competition and supply-chain concentration risk.",
+            title=f"{ticker} 10-K Item 1A",
+            source="edgar",
+        )
+
+    monkeypatch.setattr(sources, "source_from_edgar", fake_edgar)
+    store = FakeStore(holdings=[{"name": "Acme Corp", "ticker": "ACME", "weight": 20.0}])
+    conn = init_db(connect(":memory:"))
+    resolver = StubResolver(set())
+    try:
+        events = list(
+            onboard_firm(
+                PICKED, store=store, conn=conn, resolver=resolver, provider=FakeProvider()
+            )
+        )
+    finally:
+        conn.close()
+
+    # exactly one leading job.started + one terminal job.completed, seq monotonic across the whole
+    # (structural + enriching) stream
+    assert events[0].event == EventType.JOB_STARTED
+    assert events[-1].event == EventType.JOB_COMPLETED
+    assert sum(e.event == EventType.JOB_STARTED for e in events) == 1
+    assert sum(e.event == EventType.JOB_COMPLETED for e in events) == 1
+    assert [e.seq for e in events] == list(range(len(events)))
+
+    # the enriching stage is forwarded (stage-tagged), including the holding's ingest WRITTEN event
+    enriching = [e for e in events if e.data.get("stage") == "enriching"]
+    assert enriching, "no enriching-stage events were forwarded"
+    assert any(
+        e.event == EventType.WRITTEN and e.data.get("holding") == "Acme Corp" for e in enriching
+    )
+
+    # the whole point: real :Chunk nodes written for the firm during enrichment
+    assert store.queries("MERGE (c:Chunk"), "no Chunk written during enrichment"
+    # ...and the holding's 10-K was fetched via the reused ingest source
+    assert store.queries("MERGE (d:Document"), "no Document written during enrichment"
+    # ...and those chunks are deterministically linked to the held company (fixes empty firm-scope)
+    holding_links = store.queries("(x:Company")
+    assert any(p.get("name") == "Acme Corp" for _, p in holding_links), "chunks not linked to holding"
+
+    # the terminal completed carries both structural + enrichment counts
+    done = events[-1]
+    assert done.data["ok"] is True
+    assert done.data["firm_id"] == FIRM_ID
+    assert done.data["enrichment"]["ran"] is True
+    assert done.data["enrichment"]["enriched"] == 1
+
+
+def test_onboard_enrichment_failure_is_non_fatal(stub_discovery, monkeypatch):
+    """An enrichment blow-up must NOT fail an already-structurally-onboarded firm."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("enrichment exploded")
+
+    monkeypatch.setattr(onboarding_pipeline, "enrich_firm", boom)
+
+    store = FakeStore()
+    conn = init_db(connect(":memory:"))
+    resolver = StubResolver({"NVIDIA"})
+    try:
+        events = list(onboard_firm(PICKED, store=store, conn=conn, resolver=resolver))
+        final = fs.get_firm(conn, FIRM_ID)  # firm still reached ready despite the failure
+    finally:
+        conn.close()
+
+    # a single non-fatal error surfaced for the enrichment stage
+    errors = [e for e in events if e.event == EventType.ERROR]
+    assert len(errors) == 1
+    assert errors[0].data["where"] == "onboard_firm:enrich"
+    assert errors[0].data["fatal"] is False
+
+    # onboarding still completed successfully, with enrichment marked not-run
+    done = events[-1]
+    assert done.event == EventType.JOB_COMPLETED
+    assert done.data["ok"] is True
+    assert done.data["enrichment"]["ran"] is False
+    assert "error" in done.data["enrichment"]
+
+    # the firm is structurally onboarded + active
+    assert final is not None
+    assert final["status"] == "ready"
+    assert final["is_active"] is True

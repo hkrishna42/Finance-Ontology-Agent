@@ -30,6 +30,7 @@ export function AddFirmModal({ open, onClose, onDone }: AddFirmModalProps) {
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState(false)
   const [results, setResults] = useState<FirmCandidate[] | null>(null) // null = not searched yet
+  const [enrich, setEnrich] = useState(true) // opt-in semantic enrichment (default ON), passed to onboard
   // onboard state
   const [picked, setPicked] = useState<FirmCandidate | null>(null)
   const [events, setEvents] = useState<SSEEvent[]>([])
@@ -50,7 +51,7 @@ export function AddFirmModal({ open, onClose, onDone }: AddFirmModalProps) {
     clearTimer()
     if (open) {
       setPhase('search')
-      setQuery(''); setSearching(false); setSearchError(false); setResults(null)
+      setQuery(''); setSearching(false); setSearchError(false); setResults(null); setEnrich(true)
       setPicked(null); setEvents([]); setOnboardError(null); setDone(false)
       doneRef.current = false
     }
@@ -92,24 +93,33 @@ export function AddFirmModal({ open, onClose, onDone }: AddFirmModalProps) {
       cik: c.cik ?? undefined,
       lei: c.lei ?? undefined,
       series: c.series.map((s) => ({ series_id: s.series_id, name: s.name })),
+      enrich,
     }
     try {
       await onboardFirm(payload, (ev) => {
         if (streamId.current !== myStream) return // stream superseded (modal closed / re-picked)
         setEvents((prev) => [...prev, ev])
-        if (ev.event === 'error') {
-          setOnboardError(String((ev.data as Record<string, unknown>).message ?? 'Onboarding failed'))
-        } else if (ev.event === 'job.completed') {
-          setDone(true)
-          if (!doneRef.current) {
-            doneRef.current = true
-            onDone(c.name)                                   // App refreshes /firms + selects it
-            closeTimer.current = window.setTimeout(onClose, 1300) // then dismiss automatically
-          }
+        const d = ev.data as Record<string, unknown>
+        // Only a FATAL error aborts. The enrichment stage reports per-holding failures as non-fatal
+        // `error` events (data.fatal === false) and keeps going — those render inline, not as an abort.
+        if (ev.event === 'error' && d.fatal !== false) {
+          setOnboardError(String(d.message ?? 'Onboarding failed'))
+        } else if (ev.event === 'job.completed' && !doneRef.current) {
+          // Fire onDone once, at the first completion (the firm is onboarded + active by now). The
+          // "done" visual + auto-dismiss are deferred to stream close below, so the modal keeps
+          // showing the enrichment stage that streams AFTER this event rather than closing early.
+          doneRef.current = true
+          onDone(c.name) // App refreshes /firms + selects the newly-active firm
         }
       })
-      // Stream closed without a terminal event → flag it so the user isn't stuck on a spinner.
-      if (streamId.current === myStream && !doneRef.current) {
+      // Stream fully closed. If we saw a terminal completion, settle into the done state and
+      // auto-dismiss; otherwise flag the truncated stream so the user isn't stuck on a spinner.
+      if (streamId.current !== myStream) return
+      if (doneRef.current) {
+        setDone(true)
+        clearTimer()
+        closeTimer.current = window.setTimeout(onClose, 1600)
+      } else {
         setOnboardError((prev) => prev ?? 'Onboarding stream ended before completion.')
       }
     } catch (e) {
@@ -160,7 +170,7 @@ export function AddFirmModal({ open, onClose, onDone }: AddFirmModalProps) {
           {phase === 'search'
             ? <SearchStep
                 query={query} setQuery={setQuery} searching={searching} searchError={searchError}
-                results={results} onSearch={runSearch} onPick={pick}
+                results={results} onSearch={runSearch} onPick={pick} enrich={enrich} setEnrich={setEnrich}
               />
             : <OnboardStepView
                 firm={picked} events={events} error={onboardError} done={done}
@@ -174,7 +184,7 @@ export function AddFirmModal({ open, onClose, onDone }: AddFirmModalProps) {
 
 // -- Search step -------------------------------------------------------------------------------
 
-function SearchStep({ query, setQuery, searching, searchError, results, onSearch, onPick }: {
+function SearchStep({ query, setQuery, searching, searchError, results, onSearch, onPick, enrich, setEnrich }: {
   query: string
   setQuery: (v: string) => void
   searching: boolean
@@ -182,6 +192,8 @@ function SearchStep({ query, setQuery, searching, searchError, results, onSearch
   results: FirmCandidate[] | null
   onSearch: () => void
   onPick: (c: FirmCandidate) => void
+  enrich: boolean
+  setEnrich: (v: boolean) => void
 }) {
   return (
     <div>
@@ -198,6 +210,31 @@ function SearchStep({ query, setQuery, searching, searchError, results, onSearch
           {searching ? <><span className="spinner" />Searching…</> : <><Icon name="search" size={14} />Search</>}
         </button>
       </form>
+
+      {/* Onboarding option — carried into the /firms/onboard body when a candidate is picked. */}
+      <label
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: 9, marginTop: 12, padding: '10px 12px',
+          border: '1px solid var(--border)', borderRadius: 'var(--r-md)', cursor: 'pointer', userSelect: 'none',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={enrich}
+          onChange={(e) => setEnrich(e.target.checked)}
+          style={{ marginTop: 1, width: 15, height: 15, flex: 'none', accentColor: 'var(--accent)', cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          <span style={{ fontWeight: 650, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="impact" size={13} /></span>
+            Enrich filings
+          </span>{' '}
+          <span className="faint">
+            — after building the holdings graph, pull each top holding’s 10-K risk factors and extract the
+            semantic layer (RiskFactor / EXPOSED_TO edges). Adds a little time; you can also run it later per firm.
+          </span>
+        </span>
+      </label>
 
       <div style={{ marginTop: 16 }}>
         {searching && (
@@ -289,6 +326,20 @@ function SourceTag({ source }: { source: 'edgar' | 'gleif' }) {
 
 // -- Onboard step ------------------------------------------------------------------------------
 
+/** True when an SSE event belongs to the (optional) enrichment stage rather than the structural
+ *  onboarding stage. The onboard pipeline stamps every enrichment-stage event with `stage:"enriching"`
+ *  (authoritative); we also treat the per-holding/per-fund re-tag (`holding`/`fund`), the ingest-only
+ *  steps (classified/chunked/extracted), and the standalone enrich announcement (a job.started with a
+ *  holdings list / top) as enrichment — so this holds for both the onboard and manual-enrich streams. */
+function isEnrichEvent(ev: SSEEvent): boolean {
+  const d = ev.data as Record<string, unknown>
+  if (d.stage === 'enriching') return true
+  if (d.holding != null || d.fund != null) return true
+  if (ev.event === 'classified' || ev.event === 'chunked' || ev.event === 'extracted') return true
+  if (ev.event === 'job.started' && (d.top != null || Array.isArray(d.holdings))) return true
+  return false
+}
+
 function OnboardStepView({ firm, events, error, done, onBack, onClose }: {
   firm: FirmCandidate | null
   events: SSEEvent[]
@@ -298,6 +349,20 @@ function OnboardStepView({ firm, events, error, done, onBack, onClose }: {
   onClose: () => void
 }) {
   const seriesCount = firm?.series.length ?? 0
+
+  // Partition the stream into the structural onboarding events and the (optional) enrichment stage.
+  // An event belongs to the enrichment stage when it is re-tagged with a `holding`, is an ingest-only
+  // step (classified/chunked/extracted), or is the enrichment announcement (job.started with top/holdings).
+  const structural = events.filter((e) => e.event !== 'job.completed' && !isEnrichEvent(e))
+  const enriching = events.filter((e) => e.event !== 'job.completed' && isEnrichEvent(e))
+  const completions = events.filter((e) => e.event === 'job.completed')
+  // Merge every completion's data so the summary shows onboard counts (funds/holdings) AND enrichment
+  // counts (enriched/risk_factors_added) regardless of which terminal event carried them.
+  const summary: Record<string, unknown> = Object.assign({}, ...completions.map((c) => c.data))
+  const terminal: SSEEvent | null = completions.length
+    ? { ...completions[completions.length - 1], data: summary }
+    : null
+
   return (
     <div>
       <div className="row" style={{ justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
@@ -321,7 +386,11 @@ function OnboardStepView({ firm, events, error, done, onBack, onClose }: {
         {events.length === 0 && !error && (
           <div className="empty" style={{ padding: 22 }}><span className="spinner" />Starting onboarding…</div>
         )}
-        {events.map((ev, i) => <OnboardEventRow key={i} ev={ev} />)}
+        {structural.map((ev, i) => <OnboardEventRow key={`s${i}`} ev={ev} />)}
+        {enriching.length > 0 && <EnrichSection rows={enriching} settled={done || !!error} />}
+        {/* The merged terminal summary lands once the stream fully closes (`done`), so an intermediate
+            onboard completion never flashes a premature "complete" row above the enrichment section. */}
+        {done && terminal && <OnboardEventRow ev={terminal} />}
         {error && (
           <div className="row" style={{ alignItems: 'flex-start', gap: 10, padding: '9px 0 2px' }}>
             <span style={{ marginTop: 1, color: 'var(--bad)' }}><Icon name="alert" size={15} /></span>
@@ -340,6 +409,32 @@ function OnboardStepView({ firm, events, error, done, onBack, onClose }: {
             ? <button type="button" className="btn" onClick={onClose}>Close</button>
             : null}
       </div>
+    </div>
+  )
+}
+
+/** The "Enriching filings…" sub-section: a labelled divider (with a live count of the holdings seen
+ *  + a spinner until the run settles) followed by the re-tagged per-holding ingest rows. */
+function EnrichSection({ rows, settled }: { rows: SSEEvent[]; settled: boolean }) {
+  const subjects = new Set<string>()
+  for (const e of rows) {
+    const d = e.data as Record<string, unknown>
+    const s = d.holding ?? d.fund
+    if (s != null) subjects.add(String(s))
+  }
+  const n = subjects.size
+  return (
+    <div style={{ marginTop: 6, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="impact" size={15} /></span>
+        <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Enriching filings…</span>
+        {n > 0 && <span className="faint" style={{ fontSize: 11.5 }}>{n} {n === 1 ? 'filing' : 'filings'}</span>}
+        {!settled && <span className="spinner" style={{ margin: 0, width: 12, height: 12 }} />}
+      </div>
+      <div className="faint" style={{ fontSize: 11, marginTop: 1 }}>
+        Pulling top holdings’ 10-K risk factors and funds’ prospectus risks into the graph.
+      </div>
+      {rows.map((ev, i) => <OnboardEventRow key={`e${i}`} ev={ev} />)}
     </div>
   )
 }
@@ -364,42 +459,99 @@ function OnboardEventRow({ ev }: { ev: SSEEvent }) {
   )
 }
 
-/** Map an SSE onboarding event to a friendly row. Falls through to a generic renderer for any
- *  event type the pipeline emits that isn't in the known set (e.g. a per-series warning). */
+/** Map an SSE onboarding/enrichment event to a friendly row. Structural onboarding steps and the
+ *  re-tagged enrichment-stage steps (which carry a `holding`/`ticker`) share this renderer; it falls
+ *  through to a generic renderer for any event type the pipeline emits that isn't in the known set. */
 function describeEvent(ev: SSEEvent): { title: string; detail?: string; metrics: Metric[]; icon: IconName; tone: string } {
   const d = ev.data as Record<string, unknown>
   const str = (k: string): string | undefined => (d[k] == null ? undefined : String(d[k]))
   const numMetric = (label: string, k: string): Metric[] => (typeof d[k] === 'number' ? [[label, d[k] as number]] : [])
+  // Enrichment-stage events are re-tagged with the holding (10-K) or fund (prospectus) they came from.
+  const holding = str('holding')
+  const fund = str('fund')
+  const subject = holding ?? fund           // the enriched entity, when this is an enrichment-stage event
+  const who = str('ticker') ?? subject      // preferred label (ticker for a holding, else the name)
+  const kind = holding ? '10-K' : fund ? 'prospectus' : 'filing'
 
   switch (ev.event) {
-    case 'job.started':
+    case 'job.started': {
+      // The standalone enrich stream announces itself with a holdings list / top count (no per-holding
+      // tag yet). In the onboard stream this event is folded away, so only the structural start shows.
+      const holdingsArr = Array.isArray(d.holdings) ? (d.holdings as unknown[]) : null
+      if (holdingsArr || d.top != null) {
+        const cnt = holdingsArr ? holdingsArr.length : (typeof d.top === 'number' ? (d.top as number) : undefined)
+        return {
+          title: 'Fetching top-holding filings',
+          detail: 'Pulling 10-K Item 1A (Risk Factors) from EDGAR',
+          metrics: cnt != null ? [['holdings', cnt]] : [], icon: 'ingest', tone: 'var(--text-muted)',
+        }
+      }
       return { title: 'Job started', detail: str('firm') ? `Registered ${str('firm')}` : 'Firm record created', metrics: [], icon: 'play', tone: 'var(--accent)' }
+    }
+    case 'classified':
+      return {
+        title: who ? `Classified ${who} ${kind}` : 'Classified filing',
+        detail: [str('doc_type'), str('sensitivity')].filter(Boolean).join(' · ') || undefined,
+        metrics: [], icon: 'doc', tone: 'var(--text-muted)',
+      }
+    case 'chunked':
+      return { title: who ? `Chunked ${who} ${kind}` : 'Chunked filing', metrics: numMetric('chunks', 'chunks'), icon: 'ingest', tone: 'var(--text-muted)' }
+    case 'extracted':
+      return {
+        title: who ? `Extracted from ${who} ${kind}` : 'Extracted risk factors',
+        metrics: [...numMetric('entities', 'entities'), ...numMetric('relations', 'relations')],
+        icon: 'resolve', tone: 'var(--text-muted)',
+      }
     case 'parsed':
+      // Enrichment-stage parse (re-tagged with a holding/fund) vs the structural per-series parse.
+      if (subject) {
+        return { title: `Parsed ${who} ${kind}`, detail: str('pages') ? `${str('pages')} pages` : undefined, metrics: [], icon: 'doc', tone: 'var(--text-muted)' }
+      }
       return {
         title: `Parsed ${str('fund_name') ?? str('series_id') ?? 'series'}`,
-        detail: str('series_id') ? `Series ${str('series_id')}` : undefined,
-        metrics: numMetric('holdings', 'holdings'), icon: 'doc', tone: 'var(--text-muted)',
+        detail: d.skipped ? (str('reason') ?? 'skipped') : (str('series_id') ? `Series ${str('series_id')}` : undefined),
+        metrics: numMetric('holdings', 'holdings'), icon: 'doc', tone: d.skipped ? 'var(--warn)' : 'var(--text-muted)',
       }
     case 'written':
       return {
-        title: `Wrote ${str('fund_name') ?? 'fund'} to the graph`,
+        title: subject ? `Wrote ${who} risk factors` : `Wrote ${str('fund_name') ?? 'fund'} to the graph`,
         metrics: [...numMetric('nodes', 'nodes'), ...numMetric('edges', 'edges')],
         icon: 'ingest', tone: 'var(--text-muted)',
       }
     case 'resolved':
       return {
-        title: 'Resolved issuers',
+        title: subject ? `Resolved ${who} issuers` : 'Resolved issuers',
         metrics: [...numMetric('merged', 'merged'), ...numMetric('provisional', 'provisional')],
         icon: 'merge', tone: 'var(--text-muted)',
       }
-    case 'job.completed':
-      return {
-        title: 'Onboarding complete', detail: 'Firm added to the registry and set active',
-        metrics: [...numMetric('funds', 'funds'), ...numMetric('holdings', 'holdings')],
-        icon: 'check', tone: 'var(--good)',
+    case 'job.completed': {
+      // Auto-enrich onboard nests its counts under `enrichment`; the standalone enrich endpoint puts
+      // them top-level. Read whichever is present so the summary mentions enrichment either way.
+      const enr = d.enrichment && typeof d.enrichment === 'object' ? (d.enrichment as Record<string, unknown>) : null
+      const src = enr ?? d
+      const enriched = typeof src.enriched === 'number' ? src.enriched : undefined
+      const rf = typeof src.risk_factors_added === 'number' ? src.risk_factors_added : undefined
+      const ranEnrich = enr ? enr.ran !== false : enriched != null
+      const metrics: Metric[] = [...numMetric('funds', 'funds'), ...numMetric('holdings', 'holdings')]
+      let detail = 'Firm added to the registry and set active'
+      if (ranEnrich && enriched != null) {
+        metrics.push(['enriched', enriched])
+        if (rf != null) metrics.push(['risk factors', rf])
+        detail = `Firm set active · ${enriched} ${enriched === 1 ? 'holding' : 'holdings'} enriched, ${rf ?? 0} risk ${rf === 1 ? 'factor' : 'factors'} added`
+      } else if (enr && enr.ran === false) {
+        detail = 'Firm added and set active · enrichment did not run'
       }
-    case 'error':
-      return { title: 'Error', detail: str('message') ?? 'Onboarding failed', metrics: [], icon: 'alert', tone: 'var(--bad)' }
+      return { title: 'Onboarding complete', detail, metrics, icon: 'check', tone: 'var(--good)' }
+    }
+    case 'error': {
+      // The enrichment stage reports per-holding/per-fund failures as NON-fatal warnings (fatal === false).
+      const nonFatal = d.fatal === false
+      return {
+        title: nonFatal ? `Skipped ${who ?? 'filing'}` : 'Error',
+        detail: str('message') ?? 'Onboarding failed',
+        metrics: [], icon: 'alert', tone: nonFatal ? 'var(--warn)' : 'var(--bad)',
+      }
+    }
     default: {
       const detail = Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(' · ')
       return { title: ev.event, detail: detail || undefined, metrics: [], icon: 'info', tone: 'var(--text-muted)' }

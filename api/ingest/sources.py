@@ -360,3 +360,32 @@ def source_from_edgar(
         url=str(getattr(filing, "filing_url", "") or "") or None,
         meta={"company": company, "form": resolved_form},
     )
+
+
+def cik_from_name(name: str, *, user_agent: str | None = None) -> str | None:
+    """Best-effort: resolve a company NAME to its EDGAR CIK via ``edgartools``' company search.
+
+    Returns the top hit's CIK (as a string) or ``None``. Enrichment uses this to fetch a holding's
+    10-K when N-PORT gave no usable ticker (the common case — N-PORT identifies holdings by name +
+    CUSIP/LEI, not ticker). Requires the optional ``ingest`` extra; ANY failure (missing extra,
+    unknown/ambiguous name, empty results, network hiccup) degrades to ``None`` and never raises, so
+    the caller's best-effort seam simply skips a holding it cannot resolve.
+    """
+    query = (name or "").strip()
+    if not query:
+        return None
+    try:
+        import edgar
+    except ImportError:  # pragma: no cover - exercised only without the extra
+        return None
+
+    from ..config import get_settings
+
+    try:
+        edgar.set_identity(user_agent or get_settings().edgar_user_agent)
+        results = edgar.find_company(query)
+        top = results[0]  # CompanySearchResults is indexable; IndexError when there is no hit
+        cik = getattr(top, "cik", None)
+    except Exception:  # noqa: BLE001 - best-effort resolution; any failure → skip this holding
+        return None
+    return str(cik) if cik else None

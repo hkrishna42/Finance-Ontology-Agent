@@ -32,14 +32,18 @@ SYNTH_SYSTEM = (
 )
 
 # Entitlement filter lives in Cypher: the `visible` flag IS the sensitivity predicate.
-# `$firm_companies` firm-scopes evidence the same way `VECTOR_CYPHER` does: when a non-null name list
-# is passed, a chunk only qualifies if it also MENTIONS one of the active firm's held companies, so a
-# non-demo firm never surfaces demo chunks. NULL (no active firm) keeps the query global — unchanged.
+# `$firm`/`$firm_companies` firm-scope evidence the same way `VECTOR_CYPHER` does: a chunk qualifies
+# if it MENTIONS one of the firm's held companies OR belongs to a Document stamped `d.firm = $firm`
+# (the provenance branch surfaces the firm's own fund-prospectus chunks, which mention the Fund, not
+# a company). Both params NULL (no active firm) keeps the query global — today's behaviour, unchanged.
 EVIDENCE_CHUNKS_CYPHER = (
     "MATCH (c:Chunk)-[:MENTIONS]->(e) "
     "WHERE ((e:Company AND e.name IN $names) OR (e:RiskFactor AND e.title IN $names)) "
-    "  AND ($firm_companies IS NULL OR "
-    "       EXISTS { MATCH (c)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies }) "
+    "  AND (($firm IS NULL AND $firm_companies IS NULL) "
+    "       OR ($firm_companies IS NOT NULL AND "
+    "           EXISTS { MATCH (c)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies }) "
+    "       OR ($firm IS NOT NULL AND "
+    "           EXISTS { MATCH (d:Document {doc_id: c.doc_id}) WHERE d.firm = $firm })) "
     "WITH DISTINCT c, coalesce(c.sensitivity, 'public') AS sens "
     "OPTIONAL MATCH (d:Document {doc_id: c.doc_id}) "
     "RETURN c.chunk_id AS chunk_id, c.doc_id AS doc_id, c.text AS text, c.page AS page, "
@@ -52,17 +56,23 @@ def gather_evidence_chunks(
     store: Any,
     names: list[str],
     entitlements: list[str],
+    firm: str | None = None,
     firm_companies: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return (visible chunks, withheld_count) for chunks mentioning any of `names`.
 
     The entitlement predicate is evaluated in Cypher; withheld chunks are counted, not returned.
-    `firm_companies` (when non-null) additionally firm-scopes the chunks (see `EVIDENCE_CHUNKS_CYPHER`).
+    `firm`/`firm_companies` (when non-null) additionally firm-scope the chunks by held-company mention
+    or Document provenance (see `EVIDENCE_CHUNKS_CYPHER`).
     """
     if not names:
         return [], 0
     rows = store.run(
-        EVIDENCE_CHUNKS_CYPHER, names=names, ent=entitlements, firm_companies=firm_companies
+        EVIDENCE_CHUNKS_CYPHER,
+        names=names,
+        ent=entitlements,
+        firm=firm,
+        firm_companies=firm_companies,
     )
     visible = [r for r in rows if r.get("visible")]
     withheld = sum(1 for r in rows if not r.get("visible"))

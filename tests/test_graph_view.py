@@ -127,12 +127,12 @@ def _install_fake(monkeypatch, rows):
 
 def test_graph_scoped_to_active_firm_uses_firm_cypher(monkeypatch):
     # No explicit ?firm= → the active firm is resolved and its subgraph query is used.
-    monkeypatch.setattr(gv.scope, "active_firm_name", lambda conn=None: "PGIM GLOBAL REAL ESTATE FUND")
+    monkeypatch.setattr(gv.scope, "active_firm_name", lambda conn=None: "ACME GLOBAL REAL ESTATE FUND")
     calls = _install_fake(monkeypatch, [_row()])
     out = get_graph(limit=300, min_confidence=0.0, entitlements=["public"], firm=None)
     assert len(calls) == 1
     assert calls[0]["cypher"] == _SUBGRAPH_FIRM_CYPHER
-    assert calls[0]["params"]["firm"] == "PGIM GLOBAL REAL ESTATE FUND"
+    assert calls[0]["params"]["firm"] == "ACME GLOBAL REAL ESTATE FUND"
     # entitlement / confidence / limit still threaded through unchanged
     assert calls[0]["params"]["entitlements"] == ["public"]
     assert calls[0]["params"]["min_conf"] == 0.0 and calls[0]["params"]["limit"] == 300
@@ -175,7 +175,7 @@ def test_documents_scoped_to_firm(monkeypatch):
 def test_documents_empty_for_unenriched_firm(monkeypatch):
     # A structural-only firm has no chunks mentioning its holdings → [] (NOT the demo's filings).
     calls = _install_fake(monkeypatch, [])
-    docs = get_documents(entitlements=["public"], firm="PGIM GLOBAL REAL ESTATE FUND")
+    docs = get_documents(entitlements=["public"], firm="ACME GLOBAL REAL ESTATE FUND")
     assert calls[0]["cypher"] == _DOCS_FIRM_CYPHER
     assert docs == []
 

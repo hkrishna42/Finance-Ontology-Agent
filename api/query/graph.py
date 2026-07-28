@@ -315,6 +315,7 @@ class QueryGraph:
         plan: RouterPlan,
         *,
         allow_fallback: bool,
+        firm: str | None = None,
         firm_companies: list[str] | None = None,
     ) -> tuple[A.AnalyticsResult | None, CypherResult | None, str]:
         if plan.tool is not None:
@@ -322,7 +323,11 @@ class QueryGraph:
             return fn(self.store, **plan.tool_args), None, "analytics"
         if allow_fallback:
             cres = self.cypher_agent.answer(
-                self.store, question, entitlements=plan.entitlements, firm_companies=firm_companies
+                self.store,
+                question,
+                entitlements=plan.entitlements,
+                firm=firm,
+                firm_companies=firm_companies,
             )
         else:
             cres = self.cypher_agent.generate_and_run(self.store, question)
@@ -369,20 +374,27 @@ class QueryGraph:
 
     _FIRM_HAS_CHUNKS_CYPHER = (
         "MATCH (c:Chunk) "
-        "WHERE EXISTS { MATCH (c)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies } "
+        "WHERE ($firm_companies IS NOT NULL AND "
+        "       EXISTS { MATCH (c)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies }) "
+        "   OR ($firm IS NOT NULL AND "
+        "       EXISTS { MATCH (d:Document {doc_id: c.doc_id}) WHERE d.firm = $firm }) "
         "RETURN count(c) AS n"
     )
 
-    def _firm_has_chunks(self, firm_companies: list[str] | None) -> bool:
-        """Does the firm have ANY :Chunk mentioning one of its held companies (i.e. ingested filings)?
+    def _firm_has_chunks(self, firm: str | None, firm_companies: list[str] | None) -> bool:
+        """Does the firm have ANY qualifying :Chunk (ingested filings)?
 
-        Gates the structural fallback: it must fire only for a firm with NO filings at all — never for
-        a firm that HAS filings but where THIS question happened to retrieve none (that would wrongly
-        claim "no ingested filings", e.g. for the demo firm). On any read error, assume filings exist
-        so we never emit a false "no filings" answer.
+        A chunk qualifies if it MENTIONS one of the firm's held companies OR belongs to a Document
+        stamped with the firm's provenance (`d.firm = firm`) — the latter covers fund-prospectus
+        chunks that mention the Fund, not a company. Gates the structural fallback: it must fire only
+        for a firm with NO filings at all — never for a firm that HAS filings but where THIS question
+        happened to retrieve none (that would wrongly claim "no ingested filings", e.g. for the demo
+        or an enriched firm). On any read error, assume filings exist so we never emit a false claim.
         """
         try:
-            rows = self.store.run(self._FIRM_HAS_CHUNKS_CYPHER, firm_companies=firm_companies or [])
+            rows = self.store.run(
+                self._FIRM_HAS_CHUNKS_CYPHER, firm=firm, firm_companies=firm_companies
+            )
         except Exception:  # noqa: BLE001 - never claim "no filings" on a read hiccup
             return True
         return bool(rows) and (rows[0].get("n") or 0) > 0
@@ -469,9 +481,14 @@ class QueryGraph:
 
         if mode == "vector_only":
             vcres = self.cypher_agent.vector_fallback(
-                self.store, question, entitlements=plan.entitlements, firm_companies=firm_companies
+                self.store, question, entitlements=plan.entitlements,
+                firm=firm, firm_companies=firm_companies,
             )
-            if firm is not None and not vcres.chunks and not self._firm_has_chunks(firm_companies):
+            if (
+                firm is not None
+                and not vcres.chunks
+                and not self._firm_has_chunks(firm, firm_companies)
+            ):
                 return self._structural_answer(question, firm, ui_mode)
             out = self.synth.synthesize(question, plan_fund=plan.fund, cres=vcres)
             return QueryAnswer(
@@ -489,7 +506,7 @@ class QueryGraph:
             )
 
         analytics, cres, source = self._run_graph_first(
-            question, plan, allow_fallback=allow_fallback, firm_companies=firm_companies
+            question, plan, allow_fallback=allow_fallback, firm=firm, firm_companies=firm_companies
         )
 
         # Drop a cross-firm analytics result (e.g. a fund=None tool spanning the demo) so it can't
@@ -504,19 +521,28 @@ class QueryGraph:
         if analytics is not None:
             names = sorted(set(names) | set(_analytics_entities(analytics)))
         chunks, withheld = gather_evidence_chunks(
-            self.store, names, plan.entitlements, firm_companies=firm_companies
+            self.store, names, plan.entitlements, firm=firm, firm_companies=firm_companies
         )
 
-        # Structural fallback: an active firm with NO ingested filings whose question also produced no
-        # grounded evidence. Do NOT run the global vector search — answer deterministically from the
-        # firm's own graph. Gated on `_firm_has_chunks` so a firm that HAS filings (e.g. the demo) but
-        # simply matched nothing for THIS question never gets a false "no ingested filings" answer.
-        if (
-            firm is not None
-            and self._no_grounded_evidence(analytics, cres, chunks)
-            and not self._firm_has_chunks(firm_companies)
-        ):
-            return self._structural_answer(question, firm, ui_mode)
+        # No grounded evidence from graph-first (analytics / text-to-Cypher / entity chunks) for an
+        # active firm. Two firm-scoped fallbacks — NEITHER runs the global vector search (that is the
+        # demo leak Phase A closed):
+        #   • firm with NO ingested filings → a deterministic structural answer from its own graph
+        #     (gated on `_firm_has_chunks` so a firm that HAS filings never gets a false "no ingested
+        #     filings" claim just because THIS question matched nothing);
+        #   • firm WITH ingested filings but nothing grounded for THIS question → its OWN (firm-scoped)
+        #     chunks via the vector index, so an enriched firm cites its filings (e.g. its prospectus)
+        #     instead of returning an empty "no evidence" answer while the side-by-side panel shows them.
+        if firm is not None and self._no_grounded_evidence(analytics, cres, chunks):
+            if not self._firm_has_chunks(firm, firm_companies):
+                return self._structural_answer(question, firm, ui_mode)
+            if cres is None or cres.source != "text_vector":
+                vcres = self.cypher_agent.vector_fallback(
+                    self.store, question, entitlements=plan.entitlements,
+                    firm=firm, firm_companies=firm_companies,
+                )
+                if vcres.chunks:
+                    analytics, cres = None, vcres
 
         # `source` must reflect the evidence actually used (analytics may have been firm-filtered out).
         if analytics is not None:
@@ -562,7 +588,7 @@ class QueryGraph:
             else:
                 vres = self.cypher_agent.vector_fallback(
                     self.store, question, entitlements=plan.entitlements,
-                    firm_companies=firm_companies,
+                    firm=firm, firm_companies=firm_companies,
                 )
             vector_fragments = _vector_fragments(vres.chunks)
             vector_answer = _vector_answer(vres.chunks)

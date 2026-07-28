@@ -51,14 +51,18 @@ FEW_SHOTS = [
 
 FALLBACK_NOTE = "answered from text, not graph"
 
-# `$firm_companies` firm-scopes the fallback: when a non-null name list is passed, only chunks that
-# MENTION one of the active firm's held companies survive (so a non-demo firm never surfaces demo
-# chunks). Passing NULL (no active firm) leaves the search global — today's behaviour, unchanged.
+# Firm-scopes the fallback. A chunk survives if it either (a) MENTIONS one of the active firm's held
+# companies, or (b) belongs to a Document stamped with this firm's provenance (`d.firm = $firm`) —
+# branch (b) surfaces the firm's own fund-prospectus chunks, which mention the Fund, not a company.
+# Passing both params NULL (no active firm) leaves the search global — today's behaviour, unchanged.
 VECTOR_CYPHER = (
     "CALL db.index.vector.queryNodes('chunk_embedding', $k, $qv) YIELD node, score "
     "WHERE coalesce(node.sensitivity, 'public') IN $ent "
-    "  AND ($firm_companies IS NULL OR "
-    "       EXISTS { MATCH (node)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies }) "
+    "  AND (($firm IS NULL AND $firm_companies IS NULL) "
+    "       OR ($firm_companies IS NOT NULL AND "
+    "           EXISTS { MATCH (node)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies }) "
+    "       OR ($firm IS NOT NULL AND "
+    "           EXISTS { MATCH (d:Document {doc_id: node.doc_id}) WHERE d.firm = $firm })) "
     "OPTIONAL MATCH (d:Document {doc_id: node.doc_id}) "
     "RETURN node.chunk_id AS chunk_id, node.doc_id AS doc_id, node.text AS text, node.page AS page, "
     "       d.title AS title, coalesce(node.sensitivity,'public') AS sensitivity, score "
@@ -219,12 +223,14 @@ class CypherAgent:
         *,
         entitlements: list[str],
         k: int = 5,
+        firm: str | None = None,
         firm_companies: list[str] | None = None,
     ) -> CypherResult:
         """Answer from :Chunk text via the vector index, entitlement-filtered + honestly labelled.
 
-        `firm_companies` firm-scopes the search (see `VECTOR_CYPHER`): pass the active firm's held-
-        company names to keep cross-firm/demo chunks out; pass None for a global (unscoped) search.
+        `firm`/`firm_companies` firm-scope the search (see `VECTOR_CYPHER`): a chunk survives if it
+        mentions one of the firm's held companies OR belongs to a Document stamped `d.firm = firm`.
+        Pass both None for a global (unscoped) search.
         """
         qv = self.embedder.embed([question])[0]
         try:
@@ -235,6 +241,7 @@ class CypherAgent:
                     "k": k,
                     "qv": [float(x) for x in qv],
                     "ent": entitlements,
+                    "firm": firm,
                     "firm_companies": firm_companies,
                 },
             )
@@ -253,6 +260,7 @@ class CypherAgent:
         question: str,
         *,
         entitlements: list[str],
+        firm: str | None = None,
         firm_companies: list[str] | None = None,
     ) -> CypherResult:
         """Graph-first; on failure, the labelled (optionally firm-scoped) vector fallback."""
@@ -260,7 +268,7 @@ class CypherAgent:
         if graph.ok:
             return graph
         fallback = self.vector_fallback(
-            store, question, entitlements=entitlements, firm_companies=firm_companies
+            store, question, entitlements=entitlements, firm=firm, firm_companies=firm_companies
         )
         fallback.attempts = graph.attempts
         fallback.provider_error = graph.provider_error

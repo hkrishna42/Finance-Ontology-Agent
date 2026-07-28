@@ -401,4 +401,8 @@ export interface OnboardPick {
   cik?: string | null
   lei?: string | null
   series: { series_id: string; name: string }[]
+  /** When true (the UI default) the onboard stream chains an extra semantic-enrichment stage after
+   *  the structural holdings graph is written — pulling each top holding's 10-K risk factors. Omitted
+   *  or false → structural onboarding only. */
+  enrich?: boolean
 }

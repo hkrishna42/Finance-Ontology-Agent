@@ -51,7 +51,12 @@ async def firms_search(request: Request) -> list[dict[str, Any]]:
 
 @router.post("/firms/onboard")
 async def firms_onboard(request: Request) -> EventSourceResponse:
-    """Onboard a picked firm and stream the pipeline events (SSE)."""
+    """Onboard a picked firm and stream the pipeline events (SSE).
+
+    `enrich` (body, default True) controls whether onboarding auto-enriches the firm with real
+    filing data (holdings' 10-K risk factors + funds' prospectus principal risks) as a final
+    "enriching" stage — set it false to onboard the structural graph only.
+    """
     body = await _json_object(request)
     name = str(body.get("name") or "").strip()
     if not name:
@@ -62,7 +67,7 @@ async def firms_onboard(request: Request) -> EventSourceResponse:
         "lei": body.get("lei"),
         "series": body.get("series") or [],
     }
-    return EventSourceResponse(_onboard_sse(picked))
+    return EventSourceResponse(_onboard_sse(picked, enrich=_as_bool(body.get("enrich"), True)))
 
 
 @router.post("/firms/{firm_id}/enrich")
@@ -96,14 +101,23 @@ async def _json_object(request: Request) -> dict[str, Any]:
     return body
 
 
-async def _onboard_sse(picked: dict[str, Any]) -> AsyncIterator[dict[str, str]]:
+def _as_bool(value: Any, default: bool) -> bool:
+    """Coerce a JSON body value to a bool; absent → `default`, strings are truthy unless falsey."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "no", "off", ""}
+    return bool(value)
+
+
+async def _onboard_sse(picked: dict[str, Any], *, enrich: bool = True) -> AsyncIterator[dict[str, str]]:
     """Bridge the synchronous `onboard_firm` generator to an async SSE stream via a worker thread."""
     queue: asyncio.Queue[Any] = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
     def worker() -> None:
         try:
-            for event in onboard_firm(picked):
+            for event in onboard_firm(picked, enrich=enrich):
                 loop.call_soon_threadsafe(queue.put_nowait, event)
         except Exception as exc:  # noqa: BLE001 - the ERROR event was already emitted upstream
             fallback = make_event(

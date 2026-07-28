@@ -78,16 +78,22 @@ RETURN elementId(n) AS n_id, labels(n)[0] AS n_type,
 LIMIT $limit
 """
 
-# Firm-scoped documents: a Document is in-scope when one of its Chunks MENTIONS a Company held by a
-# Fund the firm manages. A not-yet-enriched firm (no such chunks) legitimately yields [] — never the
-# demo's filings. Same returned columns as _DOCS_CYPHER.
+# Firm-scoped documents: a Document is in-scope when it was ingested for this firm by enrichment
+# (`d.firm = $firm`, stamped by `enrich.link_subject`) OR one of its Chunks MENTIONS a Company held
+# by a Fund the firm manages. The `d.firm` arm is what surfaces a fund's own prospectus (its chunks
+# MENTION the Fund, not a held Company, so the held-company arm alone would miss it). A not-yet-
+# enriched firm matches neither and legitimately yields [] — never the demo's filings. Same returned
+# columns as _DOCS_CYPHER.
 _DOCS_FIRM_CYPHER = """
 MATCH (d:Document)
 WHERE (d.sensitivity IS NULL OR d.sensitivity IN $entitlements)
-  AND EXISTS {
-        (:Chunk {doc_id: d.doc_id})-[:MENTIONS]->(:Company)
-          <-[:HOLDS]-(:Fund)-[:MANAGED_BY]->(:Company {name: $firm})
-      }
+  AND (
+        d.firm = $firm
+     OR EXISTS {
+          (:Chunk {doc_id: d.doc_id})-[:MENTIONS]->(:Company)
+            <-[:HOLDS]-(:Fund)-[:MANAGED_BY]->(:Company {name: $firm})
+        }
+      )
 OPTIONAL MATCH (c:Chunk {doc_id: d.doc_id})
 WITH d, c ORDER BY coalesce(c.page, '0')
 RETURN d.doc_id AS doc_id, d.title AS title, d.doc_type AS doc_type,

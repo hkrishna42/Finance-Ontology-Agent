@@ -78,22 +78,22 @@ class _StructStore:
 def test_structural_answer_is_leak_free_and_deterministic():
     store = _StructStore(
         [
-            {"fund": "PGIM Jennison Technology Fund", "company": "NVIDIA CORP", "weight": 13.7},
-            {"fund": "PGIM Jennison Technology Fund", "company": "APPLE INC", "weight": 5.0},
-            {"fund": "PGIM US Real Estate Fund", "company": "WELLTOWER INC", "weight": 12.6},
+            {"fund": "Acme Technology Fund", "company": "NVIDIA CORP", "weight": 13.7},
+            {"fund": "Acme Technology Fund", "company": "APPLE INC", "weight": 5.0},
+            {"fund": "Acme US Real Estate Fund", "company": "WELLTOWER INC", "weight": 12.6},
         ]
     )
     qg = QueryGraph(store, settings=None)  # providers are never touched by _structural_answer
-    ans = qg._structural_answer("tell me about investments", "PGIM GLOBAL REAL ESTATE FUND", "graph")
+    ans = qg._structural_answer("tell me about investments", "ACME GLOBAL REAL ESTATE FUND", "graph")
 
     assert ans.source == "structural"
     assert ans.citations == []
     assert ans.plan["strategy"] == "structural graph (no ingested filings)"
-    assert "PGIM GLOBAL REAL ESTATE FUND manages 2 fund(s) and holds 3 position(s)." in ans.answer
+    assert "ACME GLOBAL REAL ESTATE FUND manages 2 fund(s) and holds 3 position(s)." in ans.answer
     assert "NVIDIA CORP (13.7%)" in ans.answer  # top holding by weight, its OWN position
     assert "run enrichment" in ans.answer
     d = ans.as_dict()
-    assert d["source"] == "structural" and d["firm"] == "PGIM GLOBAL REAL ESTATE FUND"
+    assert d["source"] == "structural" and d["firm"] == "ACME GLOBAL REAL ESTATE FUND"
     assert d["citations"] == [] and d["cypher"]
 
 
@@ -278,25 +278,36 @@ def test_query_route_non_demo_firm_never_leaks_demo(qg):
     firm's chat leaked NVIDIA/TSMC. With firm-scoping there are zero qualifying chunks, so the
     pipeline answers structurally from the firm's own graph instead.
     """
-    # Discover an onboarded (non-demo) firm from the live graph; skip if the install is demo-only.
-    firms = [
-        r["firm"]
-        for r in qg.store.run(
-            "MATCH (:Fund)-[:MANAGED_BY]->(c:Company) RETURN DISTINCT c.name AS firm"
+    # Discover a non-demo firm with NO ingested filings (no Document stamped with its provenance and
+    # no chunk mentioning its holdings) → the structural case. Skip if the install has none.
+    rows = qg.store.run(
+        "MATCH (:Fund)-[:MANAGED_BY]->(c:Company) WHERE c.name <> $demo "
+        "AND NOT EXISTS { MATCH (d:Document {firm: c.name}) } "
+        "RETURN DISTINCT c.name AS firm",
+        demo=DEMO_FIRM,
+    )
+    firm = None
+    for r in rows:
+        companies = [
+            x["name"]
+            for x in qg.store.run(
+                "MATCH (f:Fund)-[:MANAGED_BY]->(:Company {name:$firm}) "
+                "MATCH (f)-[:HOLDS]->(co:Company) RETURN DISTINCT co.name AS name",
+                firm=r["firm"],
+            )
+        ]
+        # no chunk mentions any of its holdings → genuinely filing-less
+        mentions = qg.store.run(
+            "MATCH (c:Chunk) WHERE EXISTS { MATCH (c)-[:MENTIONS]->(x) WHERE x.name IN $fc } "
+            "RETURN count(c) AS n",
+            fc=companies,
         )
-    ]
-    non_demo = [f for f in firms if f != DEMO_FIRM]
-    if not non_demo:
-        pytest.skip("no onboarded non-demo firm in the graph")
-    firm = non_demo[0]
-    companies = [
-        r["name"]
-        for r in qg.store.run(
-            "MATCH (f:Fund)-[:MANAGED_BY]->(:Company {name:$firm}) "
-            "MATCH (f)-[:HOLDS]->(co:Company) RETURN DISTINCT co.name AS name",
-            firm=firm,
-        )
-    ]
+        if not companies or (mentions and mentions[0]["n"] == 0):
+            firm = r["firm"]
+            break
+    if firm is None:
+        pytest.skip("no filing-less non-demo firm in the graph")
+
     ans = qg.answer(
         "tell me about investments",
         entitlements=["public"],
@@ -313,3 +324,108 @@ def test_query_route_non_demo_firm_never_leaks_demo(qg):
         assert ans.plan["strategy"] == "structural graph (no ingested filings)"
         assert firm in ans.answer
         assert "run enrichment" in ans.answer
+
+
+def test_query_enriched_firm_cites_own_docs_via_provenance(qg):
+    """An enriched firm surfaces its OWN documents by provenance (`Document.firm`), never the demo's.
+
+    Phase-B: fund-prospectus chunks MENTION the Fund (not a held company), so the held-company scope
+    alone misses them and the firm wrongly fell back to `structural`. The provenance branch
+    (`d.firm = firm`) surfaces them; `vector_only` forces the text path so we assert it directly.
+    """
+    rows = qg.store.run(
+        "MATCH (d:Document) WHERE d.firm IS NOT NULL "
+        "MATCH (:Fund)-[:MANAGED_BY]->(c:Company {name: d.firm}) "
+        "RETURN DISTINCT d.firm AS firm LIMIT 1"
+    )
+    if not rows:
+        pytest.skip("no enriched firm (Document.firm) in the graph")
+    firm = rows[0]["firm"]
+    companies = [
+        r["name"]
+        for r in qg.store.run(
+            "MATCH (f:Fund)-[:MANAGED_BY]->(:Company {name:$firm}) "
+            "MATCH (f)-[:HOLDS]->(co:Company) RETURN DISTINCT co.name AS name",
+            firm=firm,
+        )
+    ]
+    own_docs = {
+        r["doc_id"]
+        for r in qg.store.run("MATCH (d:Document {firm:$firm}) RETURN d.doc_id AS doc_id", firm=firm)
+    }
+    # vector_only forces the text path; provenance must surface the firm's own prospectus chunks.
+    ans = qg.answer(
+        "What are the key risks?",
+        entitlements=["public"],
+        mode="vector_only",
+        firm=firm,
+        firm_companies=companies,
+    )
+    assert ans.source == "text_vector"  # NOT the structural fallback — the firm HAS ingested filings
+    cited = _cited_docs(ans)
+    assert cited and cited <= own_docs  # cites ONLY the firm's own documents
+    assert not (cited & {"nvda_10k", "tsmc_20f", "internal_note"})  # never the demo fixtures
+
+
+def test_enriched_firm_falls_back_to_own_vector_when_graph_first_empty():
+    """Phase-B: a firm WITH ingested filings whose graph-first path grounds nothing for THIS question
+    surfaces its OWN (firm-scoped) chunks via the vector index — never an empty answer, and never the
+    structural fallback (which is reserved for a firm with NO filings at all).
+
+    Offline via injected fakes: the graph path yields nothing, the firm-has-chunks gate returns true,
+    and the firm-scoped vector fallback is productive — the exact state an enriched firm hits on a
+    document-style question the router did not send to an analytics tool.
+    """
+    from api.query.router import Router, Vocab
+
+    own_chunk = {
+        "chunk_id": "own_c1", "doc_id": "own_prospectus", "page": None,
+        "text": "The fund's principal investment risks include market and manager risk.",
+        "title": "Fund 485BPOS", "sensitivity": "public", "score": 0.91,
+    }
+
+    class _HasChunksStore:
+        """The firm-has-chunks gate (`count(c) AS n`) → non-zero; every other read → empty."""
+
+        def run(self, query, **params):
+            return [{"n": 7}] if "RETURN count(c) AS n" in query else []
+
+    class _EmptyGraphAgent:
+        """Graph-first yields nothing; the firm-scoped vector fallback returns the firm's own chunk."""
+
+        def __init__(self):
+            self.vector_calls: list[tuple] = []
+
+        def answer(self, store, question, *, entitlements, firm=None, firm_companies=None):
+            return CypherResult(ok=False, source="graph", rows=[], chunks=[])
+
+        def vector_fallback(
+            self, store, question, *, entitlements, k=5, firm=None, firm_companies=None
+        ):
+            self.vector_calls.append((firm, tuple(firm_companies or ())))
+            return CypherResult(
+                ok=True, source="text_vector", chunks=[own_chunk],
+                note="answered from text, not graph",
+            )
+
+    agent = _EmptyGraphAgent()
+    qg = QueryGraph(
+        _HasChunksStore(),
+        settings=None,
+        router=Router(provider=_ZeroCredits()),
+        cypher_agent=agent,
+        synth=Synthesizer(provider=_ZeroCredits()),
+        vocab=Vocab(),
+    )
+    ans = qg.answer(
+        "Tell me about this fund.",
+        entitlements=["public"],
+        mode="graph",
+        firm="ACME EQUITY FUND",
+        firm_companies=["SOME HOLDING"],
+    )
+
+    assert ans.source == "text_vector"  # the firm's OWN text — not empty, not the structural fallback
+    assert {c.get("doc_id") for c in ans.citations} == {"own_prospectus"}
+    # the fallback was firm-scoped (never a global vector search — that was the demo leak)
+    assert agent.vector_calls == [("ACME EQUITY FUND", ("SOME HOLDING",))]

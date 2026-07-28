@@ -209,11 +209,11 @@ export async function deleteFirm(firmId: string): Promise<boolean> {
   return res?.deleted === true
 }
 
-// -- Firm onboarding (discovery + streaming onboard) ------------------------------------------
-// POST /firms/search {query} → FirmCandidate[] · POST /firms/onboard {name,cik?,lei?,series} → SSE.
-// Both live under the /firms proxy allow-list (Phase 1). Unlike the getters above these do NOT fall
-// back to a fixture — the AddFirmModal surfaces an inline "search unavailable" note when the
-// discovery service is down, and onboarding requires a live backend.
+// -- Firm onboarding (discovery + streaming onboard/enrich) -----------------------------------
+// POST /firms/search {query} → FirmCandidate[] · POST /firms/onboard {name,cik?,lei?,series,enrich?}
+// → SSE · POST /firms/{id}/enrich → SSE. All live under the /firms proxy allow-list (Phase 1).
+// Unlike the getters above these do NOT fall back to a fixture — the AddFirmModal surfaces an inline
+// "search unavailable" note when the discovery service is down, and onboarding requires a live backend.
 
 /** Search EDGAR + GLEIF for firms to onboard. Throws on network/HTTP failure so the modal can tell
  *  "search unavailable" apart from an empty (but successful) result set. Returns [] when nothing matched. */
@@ -230,8 +230,10 @@ export async function searchFirms(query: string): Promise<FirmCandidate[]> {
 /** Onboard a picked firm, streaming the deterministic pipeline as SSE. Mirrors the IngestPanel's SSE
  *  consumption (`JSON.parse(ev.data)` per named event), but over POST via fetch + ReadableStream —
  *  EventSource is GET-only, and /firms/onboard needs a JSON body. Each frozen SSEEvent envelope
- *  ({event, job_id, seq, data}) is handed to `onEvent` as it lands. Resolves when the stream ends;
- *  rejects only if the request itself fails to open (the pipeline reports failure via an `error` event). */
+ *  ({event, job_id, seq, data}) is handed to `onEvent` as it lands. When `picked.enrich` is set the
+ *  stream chains an extra semantic-enrichment stage (its events re-tagged with `holding`/`ticker`)
+ *  before the terminal `job.completed`. Resolves when the stream ends; rejects only if the request
+ *  itself fails to open (the pipeline reports failure via an `error` event). */
 export async function onboardFirm(picked: OnboardPick, onEvent: (ev: SSEEvent) => void): Promise<void> {
   const r = await fetch('/firms/onboard', {
     method: 'POST',
@@ -239,8 +241,27 @@ export async function onboardFirm(picked: OnboardPick, onEvent: (ev: SSEEvent) =
     body: JSON.stringify(picked),
   })
   if (!r.ok || !r.body) throw new Error(`onboard failed (${r.status})`)
+  await streamSSE(r.body, onEvent)
+}
 
-  const reader = r.body.getReader()
+/** (Re-)enrich an already-onboarded firm's top holdings, streaming the ingest pipeline as SSE.
+ *  POSTs to /firms/{firmId}/enrich (no body — the server defaults `top`). Mirrors `onboardFirm`:
+ *  fetch + ReadableStream, each SSEEvent envelope handed to `onEvent` as it lands. The stream is
+ *  `job.started` → per-holding forwarded ingest events (re-tagged `holding`/`ticker`) → a terminal
+ *  `job.completed{enriched, risk_factors_added, …}`. Per-holding failures arrive as NON-fatal `error`
+ *  events (`data.fatal === false`) and the run still completes. Resolves when the stream ends; rejects
+ *  only if the request itself fails to open. */
+export async function enrichFirm(firmId: string, onEvent: (ev: SSEEvent) => void): Promise<void> {
+  const r = await fetch(`/firms/${encodeURIComponent(firmId)}/enrich`, { method: 'POST' })
+  if (!r.ok || !r.body) throw new Error(`enrich failed (${r.status})`)
+  await streamSSE(r.body, onEvent)
+}
+
+/** Drain a fetch `ReadableStream` of SSE frames, handing each parsed SSEEvent envelope to `onEvent`.
+ *  Shared by `onboardFirm` + `enrichFirm` (both stream the same envelopes over POST — EventSource is
+ *  GET-only). Normalises CRLF/CR → LF so `\n\n` frame + line splitting is uniform across servers. */
+async function streamSSE(body: ReadableStream<Uint8Array>, onEvent: (ev: SSEEvent) => void): Promise<void> {
+  const reader = body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
   const flush = (frame: string) => {
@@ -252,7 +273,6 @@ export async function onboardFirm(picked: OnboardPick, onEvent: (ev: SSEEvent) =
   while (streaming) {
     const { done, value } = await reader.read()
     if (done) { streaming = false; break }
-    // Normalise CRLF/CR → LF so frame (\n\n) and line splitting is uniform across servers.
     buf += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n')
     let sep = buf.indexOf('\n\n')
     while (sep !== -1) {

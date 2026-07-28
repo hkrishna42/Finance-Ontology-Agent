@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { getFirms, selectFirm } from '../api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { enrichFirm, getFirms, selectFirm } from '../api'
 import type { Source } from '../api'
-import type { Firm } from '../types'
+import type { Firm, SSEEvent } from '../types'
 import { SourceBadge } from '../lib/ui'
 import { Icon } from '../lib/icons'
 
@@ -19,6 +19,10 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
   const [source, setSource] = useState<Source | null>(null)
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  // Per-firm manual enrichment: which firm is streaming, plus a transient inline done/error note.
+  const [enrichingId, setEnrichingId] = useState<string | null>(null)
+  const [enrichNote, setEnrichNote] = useState<{ id: string; text: string; tone: 'good' | 'bad' } | null>(null)
+  const noteTimer = useRef<number | null>(null)
 
   const load = useCallback(async () => {
     const res = await getFirms()
@@ -37,6 +41,9 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
+  // Drop the pending inline-note timer if the selector unmounts.
+  useEffect(() => () => { if (noteTimer.current != null) clearTimeout(noteTimer.current) }, [])
+
   if (!firms || firms.length === 0) return null // nothing registered → hide gracefully
 
   const offline = source !== 'live'
@@ -52,6 +59,44 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
     // Optimistically flip the active flag so the trigger + list update immediately.
     setFirms((prev) => (prev ? prev.map((x) => ({ ...x, is_active: x.firm_id === f.firm_id })) : prev))
     onSelect?.(updated ?? { ...f, is_active: true })
+  }
+
+  // Manually (re-)enrich one firm's top holdings. Streams the same pipeline the onboard flow can run
+  // automatically; keeps the menu open and shows a spinner on the row, then a transient inline note.
+  const runEnrich = async (f: Firm) => {
+    if (offline || enrichingId) return
+    setEnrichingId(f.firm_id)
+    setEnrichNote(null)
+    if (noteTimer.current != null) { clearTimeout(noteTimer.current); noteTimer.current = null }
+
+    // Collect through an object so the callback's writes survive TS control-flow analysis (a `let`
+    // assigned only inside the closure would stay narrowed to its initial `null`).
+    const out: { terminal: Record<string, unknown> | null; fatal: string | null } = { terminal: null, fatal: null }
+    try {
+      await enrichFirm(f.firm_id, (ev: SSEEvent) => {
+        const d = ev.data as Record<string, unknown>
+        if (ev.event === 'job.completed') out.terminal = d
+        else if (ev.event === 'error' && d.fatal !== false) out.fatal = String(d.message ?? 'enrichment failed')
+      })
+      if (out.fatal) {
+        setEnrichNote({ id: f.firm_id, text: out.fatal, tone: 'bad' })
+      } else {
+        const t = out.terminal
+        const en = t && typeof t.enriched === 'number' ? t.enriched : 0
+        const rf = t && typeof t.risk_factors_added === 'number' ? t.risk_factors_added : 0
+        setEnrichNote({
+          id: f.firm_id,
+          text: `Enriched ${en} ${en === 1 ? 'holding' : 'holdings'} · ${rf} risk ${rf === 1 ? 'factor' : 'factors'} added`,
+          tone: 'good',
+        })
+        load() // refresh the registry so any changed fund counts / status flow through
+      }
+    } catch (e) {
+      setEnrichNote({ id: f.firm_id, text: e instanceof Error ? e.message : 'enrichment failed', tone: 'bad' })
+    } finally {
+      setEnrichingId(null)
+      noteTimer.current = window.setTimeout(() => setEnrichNote(null), 6000)
+    }
   }
 
   return (
@@ -93,36 +138,70 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
 
             {firms.map((f) => {
               const isActive = f.is_active
+              const canEnrich = f.source !== 'demo' // only real onboarded firms can be (re-)enriched
+              const isEnriching = enrichingId === f.firm_id
+              const note = enrichNote?.id === f.firm_id ? enrichNote : null
               return (
-                <button
-                  key={f.firm_id}
-                  role="menuitem"
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => choose(f)}
-                  disabled={(offline || busy != null) && !isActive}
-                  title={offline ? 'Selection disabled while the registry is offline' : isActive ? 'Active firm' : `Switch to ${f.name}`}
-                  style={{
-                    width: '100%', justifyContent: 'flex-start', gap: 10, padding: '8px 10px', color: 'var(--text)',
-                    ...(isActive ? { background: 'var(--accent-weak)' } : {}),
-                  }}
-                >
-                  <FirmAvatar firm={f} size={22} />
-                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <span className="row" style={{ gap: 6 }}>
-                      <span className="nowrap" style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                      {f.status === 'demo' && <DemoBadge />}
-                    </span>
-                    <span className="faint" style={{ fontSize: 11.5, fontWeight: 400 }}>
-                      {f.fund_count} {f.fund_count === 1 ? 'fund' : 'funds'}
-                    </span>
-                  </span>
-                  {busy === f.firm_id
-                    ? <span className="spinner" style={{ margin: 0, width: 15, height: 15 }} />
-                    : isActive
-                      ? <span style={{ display: 'inline-flex', color: 'var(--accent)' }}><Icon name="check" size={15} /></span>
-                      : null}
-                </button>
+                <div key={f.firm_id}>
+                  <div
+                    className="row"
+                    style={{ gap: 2, borderRadius: 'var(--r-sm)', ...(isActive ? { background: 'var(--accent-weak)' } : {}) }}
+                  >
+                    <button
+                      role="menuitem"
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => choose(f)}
+                      disabled={(offline || busy != null) && !isActive}
+                      title={offline ? 'Selection disabled while the registry is offline' : isActive ? 'Active firm' : `Switch to ${f.name}`}
+                      style={{
+                        flex: 1, minWidth: 0, justifyContent: 'flex-start', gap: 10, padding: '8px 10px',
+                        color: 'var(--text)', background: 'transparent',
+                      }}
+                    >
+                      <FirmAvatar firm={f} size={22} />
+                      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <span className="row" style={{ gap: 6 }}>
+                          <span className="nowrap" style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+                          {f.status === 'demo' && <DemoBadge />}
+                        </span>
+                        <span className="faint" style={{ fontSize: 11.5, fontWeight: 400 }}>
+                          {isEnriching ? 'enriching…' : `${f.fund_count} ${f.fund_count === 1 ? 'fund' : 'funds'}`}
+                        </span>
+                      </span>
+                      {busy === f.firm_id
+                        ? <span className="spinner" style={{ margin: 0, width: 15, height: 15 }} />
+                        : isActive
+                          ? <span style={{ display: 'inline-flex', color: 'var(--accent)' }}><Icon name="check" size={15} /></span>
+                          : null}
+                    </button>
+                    {canEnrich && (
+                      <button
+                        role="menuitem"
+                        type="button"
+                        className="icon-btn"
+                        onClick={() => runEnrich(f)}
+                        disabled={offline || enrichingId != null}
+                        title={offline ? 'Enrichment needs a live backend' : `Enrich ${f.name} — pull top holdings’ 10-K risk factors`}
+                        aria-label={`Enrich ${f.name}`}
+                        style={{ flex: 'none', marginRight: 4 }}
+                      >
+                        {isEnriching
+                          ? <span className="spinner" style={{ margin: 0, width: 14, height: 14 }} />
+                          : <Icon name="impact" size={15} />}
+                      </button>
+                    )}
+                  </div>
+                  {note && (
+                    <div
+                      className="row"
+                      style={{ gap: 6, padding: '1px 10px 5px 42px', fontSize: 11, color: note.tone === 'good' ? 'var(--good)' : 'var(--bad)' }}
+                    >
+                      <span style={{ display: 'inline-flex', flex: 'none' }}><Icon name={note.tone === 'good' ? 'check' : 'alert'} size={12} /></span>
+                      <span className="nowrap" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{note.text}</span>
+                    </div>
+                  )}
+                </div>
               )
             })}
 

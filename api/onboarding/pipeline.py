@@ -29,6 +29,7 @@ from uuid import uuid4
 from ..contracts.events import EventType, SSEEvent, make_event
 from ..firms import store as firms_store
 from ..l2 import nport
+from .enrich import enrich_firm
 
 
 def onboard_firm(
@@ -38,6 +39,8 @@ def onboard_firm(
     store: Any = None,
     conn: Any = None,
     resolver: Any = None,
+    enrich: bool = True,
+    provider: Any = None,
 ) -> Iterator[SSEEvent]:
     """Onboard the firm described by `picked`, yielding SSE events in contract order.
 
@@ -46,9 +49,19 @@ def onboard_firm(
     `settings.sqlite_path`; inject a fake store / temp connection for offline tests. `resolver`
     defaults to the deterministic `$0` resolver (real spine, `FakeProvider` adjudicator).
 
-    On any hard failure the registry row is flipped to `status="failed"`, an `ERROR` event is
-    emitted, and the exception re-raised (the route's worker surfaces it on the stream). Idempotent:
-    every graph and registry write is a MERGE/upsert, so re-onboarding never duplicates.
+    When `enrich` (default True), after the firm reaches `status="ready"` the deterministic
+    structural graph is layered with semantic filing data: `enrich_firm(name, ...)` runs and its SSE
+    events are FORWARDED as a final "enriching" stage (stamped `stage="enriching"`), so the firm's
+    Analyst-Chat / Documents / Risk-factor features get firm-specific `Chunk`/`RiskFactor` data
+    instead of being empty. It is best-effort — the firm is already structurally onboarded, so an
+    enrichment failure emits a single non-fatal `error` event and the run still completes. The stream
+    keeps exactly one leading `job.started` and one terminal `job.completed`, whose payload carries
+    the enrichment counts under `enrichment`. `provider` is the LLM seam forwarded to enrichment
+    (default `stub`/`FakeProvider`); the structural onboarding itself spends zero LLM tokens.
+
+    On any hard (structural) failure the registry row is flipped to `status="failed"`, an `ERROR`
+    event is emitted, and the exception re-raised (the route's worker surfaces it on the stream).
+    Idempotent: every graph and registry write is a MERGE/upsert, so re-onboarding never duplicates.
     """
     from ..config import get_settings
 
@@ -205,17 +218,67 @@ def onboard_firm(
             funds=funds_written,
             activate=True,
         )
-        yield emit(
-            EventType.JOB_COMPLETED,
-            ok=True,
-            firm_id=firm_id,
-            firm=name,
-            funds=len(funds_written),
-            fund_names=[f["name"] for f in funds_written],
-            holdings=total_holdings,
-            merged=merged,
-            provisional=provisional,
-        )
+        completed: dict[str, Any] = {
+            "ok": True,
+            "firm_id": firm_id,
+            "firm": name,
+            "funds": len(funds_written),
+            "fund_names": [f["name"] for f in funds_written],
+            "holdings": total_holdings,
+            "merged": merged,
+            "provisional": provisional,
+        }
+
+        # 5. best-effort semantic enrichment — forwarded as a final "enriching" stage --------------
+        # The firm is already structurally onboarded (status="ready" above), so enrichment must never
+        # fail the onboarding: its whole loop is guarded, a failure emits one non-fatal error, and we
+        # still emit the single terminal job.completed. enrich_firm's own lifecycle events are folded
+        # away (its job.started dropped, its job.completed captured into `completed["enrichment"]`) so
+        # the onboarding stream keeps exactly one job.started + one job.completed.
+        if enrich:
+            enrichment: dict[str, Any] = {
+                "ran": False,
+                "enriched": 0,
+                "failed": 0,
+                "funds_enriched": 0,
+                "funds_failed": 0,
+                "holdings_total": 0,
+                "funds_total": 0,
+                "risk_factors_added": 0,
+            }
+            try:
+                for ev in enrich_firm(
+                    name, settings=settings, store=store, provider=provider, conn=None
+                ):
+                    if ev.event == EventType.JOB_STARTED:
+                        continue  # onboarding owns the single lifecycle job.started
+                    if ev.event == EventType.JOB_COMPLETED:
+                        enrichment = {
+                            "ran": True,
+                            "enriched": ev.data.get("enriched", 0),
+                            "failed": ev.data.get("failed", 0),
+                            "funds_enriched": ev.data.get("funds_enriched", 0),
+                            "funds_failed": ev.data.get("funds_failed", 0),
+                            "holdings_total": ev.data.get("holdings_total", 0),
+                            "funds_total": ev.data.get("funds_total", 0),
+                            "risk_factors_added": ev.data.get("risk_factors_added", 0),
+                        }
+                        continue
+                    # forward every middle event (parsed/chunked/extracted/resolved/written/error)
+                    yield emit(ev.event, **{**ev.data, "stage": "enriching"})
+            except Exception as exc:  # noqa: BLE001 - enrichment is best-effort, never fatal here
+                enrichment = {**enrichment, "ran": False, "error": str(exc)[:400]}
+                yield emit(
+                    EventType.ERROR,
+                    where="onboard_firm:enrich",
+                    message=str(exc)[:400],
+                    fatal=False,
+                    stage="enriching",
+                )
+            completed["enrichment"] = enrichment
+
+        # 6. single terminal job.completed (structural counts + any enrichment counts) -------------
+        yield emit(EventType.JOB_COMPLETED, **completed)
 
     except Exception as exc:  # noqa: BLE001 - surface on the stream, mark the registry failed
         try:
