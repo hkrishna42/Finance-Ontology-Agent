@@ -1,0 +1,39 @@
+[
+  {
+    "report_id": "rep-2026Q2-growth",
+    "title": "Demo Growth Fund — Q2 2026 Supply-Chain Risk Pack",
+    "period": "2026 Q2",
+    "created_at": "2026-07-15T11:00:00Z",
+    "sha256": "9f2c4b7a1e6d8305c1a4f0b9d7e2c6538a0b1f4e9c3d2a7b6e5f4c3d2b1a0f9e",
+    "status": "out_of_date",
+    "sections": [
+      { "heading": "Executive summary", "body": "The Demo Growth Fund carries a concentrated, correlated dependence on advanced semiconductor manufacturing. Four holdings (NVIDIA, AMD, Apple, Broadcom) — 27.5% of assets — critically depend on TSMC, which in turn sole-sources EUV lithography from ASML. A single foundry or EUV shock would propagate across all four positions simultaneously." },
+      { "heading": "Concentration & HHI", "body": "Holdings-level HHI is 413 (moderately concentrated); top position NVIDIA at 11.5%. See the Risk dashboard for the per-issuer breakdown and the 'explain this number' Cypher." },
+      { "heading": "Second-order chokepoint", "body": "TSMC → ASML is a critical, sole-source dependency. The fund's effective exposure to an ASML/EUV disruption is therefore ~30% once the transitive path is included." },
+      { "heading": "Disclosure coverage note", "body": "The 485BPOS prospectus does NOT currently include a principal-risk section covering foundry / supply concentration, despite the holdings' documented exposure. Recommend adding coverage.", "stale": true }
+    ],
+    "provenance": [
+      { "claim": "NVIDIA critically depends on TSMC", "doc_id": "nvda_10k", "chunk_id": "nvda_10k_c1", "span": "We depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs" },
+      { "claim": "TSMC sole-sources EUV from ASML", "doc_id": "tsmc_20f", "chunk_id": "tsmc_20f_c1", "span": "Our leading-edge manufacturing depends on extreme ultraviolet (EUV) lithography systems supplied by ASML." },
+      { "claim": "Demo Growth Fund HHI = 413", "doc_id": "growth_nport", "chunk_id": "growth_nport:holdings", "cypher": "MATCH (:Fund {name:'Demo Growth Fund'})-[h:HOLDS]->() RETURN round(sum(h.weight_pct^2)) AS hhi" },
+      { "claim": "Four dependents total 27.5% of assets", "doc_id": "growth_nport", "chunk_id": "growth_nport:holdings", "cypher": "MATCH (f:Fund {name:'Demo Growth Fund'})-[h:HOLDS]->(c)-[:SUPPLIES_TO {criticality:'critical'}]->(:Company {name:'Taiwan Semiconductor Manufacturing'}) RETURN sum(h.weight_pct)" }
+    ]
+  },
+  {
+    "report_id": "rep-2026Q2-focused",
+    "title": "Demo Focused Growth Fund — Q2 2026 Concentration Brief",
+    "period": "2026 Q2",
+    "created_at": "2026-07-15T11:05:00Z",
+    "sha256": "3a1d9e6c8b2f47051f7c0a3e5d9b2c6841e0a7f3c9d5b2e7a4f1c8d6b3a0e9f2c",
+    "status": "final",
+    "sections": [
+      { "heading": "Executive summary", "body": "The Demo Focused Growth Fund is a high-conviction, concentrated portfolio (HHI 713; top position 16.0%). Its four TSMC-dependent holdings total 37.5% of assets — the single largest correlated exposure in the book." },
+      { "heading": "Concentration & HHI", "body": "HHI 713 is ~2.6× the diversified sibling fund. Top-4 issuers (NVIDIA, Microsoft, Apple, Amazon) are 45.5% of assets." },
+      { "heading": "Governance note", "body": "A board interlock (Ada Interlock, director of both NVIDIA and Microsoft) spans 28.0% of the fund's assets — relevant to independence review." }
+    ],
+    "provenance": [
+      { "claim": "Demo Focused Growth Fund HHI = 713", "doc_id": "focused_nport", "chunk_id": "focused_nport:holdings", "cypher": "MATCH (:Fund {name:'Demo Focused Growth Fund'})-[h:HOLDS]->() RETURN round(sum(h.weight_pct^2)) AS hhi" },
+      { "claim": "Ada Interlock directs NVIDIA and Microsoft", "doc_id": "nvda_def14a", "chunk_id": "nvda_def14a_c1", "span": "Ada Interlock has served as a director since 2019 and is a member of the Audit Committee." }
+    ]
+  }
+]

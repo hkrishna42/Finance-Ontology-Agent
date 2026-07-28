@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node / web
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.local
+
+# Data & caches (downloaded at build time; manifest is committed)
+corpus/downloads/
+.fastembed_cache/
+.cassettes/*.tmp
+
+# Neo4j local volumes
+.neo4j/
+
+# Runtime state (created by bootstrap.sh / make)
+data/
+.run/
+logs/
+
+# OS / editor
+.DS_Store
+
+# Harness (not part of the app repo)
+.claude/

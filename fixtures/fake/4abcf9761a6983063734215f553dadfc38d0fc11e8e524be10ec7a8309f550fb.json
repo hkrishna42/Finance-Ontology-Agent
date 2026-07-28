@@ -1,0 +1,11 @@
+{
+  "data": {
+    "match": true,
+    "cik": "0001045810",
+    "confidence": 0.97
+  },
+  "raw": "{\"match\":true,\"cik\":\"0001045810\",\"confidence\":0.97}",
+  "model": "fake",
+  "usage": {},
+  "stop_reason": "end_turn"
+}

@@ -1,0 +1,71 @@
+[
+  {
+    "id": "prov-1",
+    "label": "Company",
+    "name": "TSMC",
+    "aliases": ["Taiwan Semiconductor", "台積電"],
+    "span": "AMD relies on TSMC for the manufacture of its leading-edge processors",
+    "doc_id": "amd_10k",
+    "chunk_id": "amd_10k_c1",
+    "confidence": 0.86,
+    "status": "pending",
+    "candidates": [
+      { "existing_id": "TSMC", "name": "Taiwan Semiconductor Manufacturing", "label": "Company", "score": 0.94, "reason": "alias 'Taiwan Semiconductor' + ticker TSM match" },
+      { "existing_id": "ASML", "name": "ASML Holding", "label": "Company", "score": 0.31, "reason": "same semiconductor-equipment neighbourhood" }
+    ]
+  },
+  {
+    "id": "prov-2",
+    "label": "Company",
+    "name": "Nvidia Corp.",
+    "aliases": ["Nvidia Corporation"],
+    "span": "Nvidia Corp. reported record data center revenue for the quarter",
+    "doc_id": "nvda_8k_live",
+    "chunk_id": "nvda_8k_live_c1",
+    "confidence": 0.91,
+    "status": "pending",
+    "candidates": [
+      { "existing_id": "NVIDIA", "name": "NVIDIA", "label": "Company", "score": 0.97, "reason": "normalized name + ticker NVDA + CIK 0001045810" }
+    ]
+  },
+  {
+    "id": "prov-3",
+    "label": "Person",
+    "name": "A. Interlock",
+    "aliases": ["Ada Interlock"],
+    "span": "A. Interlock joined the board's audit committee in 2019",
+    "doc_id": "msft_def14a",
+    "chunk_id": "msft_def14a_c2",
+    "confidence": 0.72,
+    "status": "pending",
+    "candidates": [
+      { "existing_id": "ada", "name": "Ada Interlock", "label": "Person", "score": 0.79, "reason": "alias + shared board (NVIDIA) — possible interlock" }
+    ]
+  },
+  {
+    "id": "prov-4",
+    "label": "Company",
+    "name": "Broadcom Inc.",
+    "aliases": ["Broadcom"],
+    "span": "Broadcom depends on TSMC for advanced ASICs",
+    "doc_id": "amd_10k",
+    "chunk_id": "nvda_10k_c1",
+    "confidence": 0.88,
+    "status": "pending",
+    "candidates": [
+      { "existing_id": "AVGO", "name": "Broadcom", "label": "Company", "score": 0.95, "reason": "normalized suffix stripped + ticker AVGO match" }
+    ]
+  },
+  {
+    "id": "prov-5",
+    "label": "Company",
+    "name": "Groq",
+    "aliases": [],
+    "span": "Groq, a private inference-chip startup, was cited as an emerging competitor",
+    "doc_id": "amd_acq_8k",
+    "chunk_id": "amd_acq_8k_c3",
+    "confidence": 0.64,
+    "status": "pending",
+    "candidates": []
+  }
+]

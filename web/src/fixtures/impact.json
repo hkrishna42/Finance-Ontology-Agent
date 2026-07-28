@@ -1,0 +1,62 @@
+[
+  {
+    "id": "impact-nvda-8k-live",
+    "trigger_doc_id": "nvda_8k_live",
+    "trigger_title": "NVIDIA Form 8-K — customer commitment update",
+    "created_at": "2026-07-27T14:12:00Z",
+    "rule": "changed_risk_to_disclosure",
+    "summary": "A newly ingested NVIDIA 8-K strengthens the customer-concentration exposure. Propagation (hop-limit 2) reaches both funds that hold NVIDIA and flags two prospectus sections that cover the concentration risk as stale.",
+    "added": [
+      { "subject": "NVIDIA", "predicate": "EXPOSED_TO", "object": "Customer concentration", "detail": "severity language strengthened vs prior 10-K" },
+      { "subject": "Microsoft", "predicate": "CUSTOMER_OF", "object": "NVIDIA", "detail": "multi-year committed-capacity arrangement disclosed" }
+    ],
+    "removed": [],
+    "changed": [
+      { "subject": "NVIDIA", "predicate": "REPORTED", "object": "data_center_revenue_share", "detail": "concentration metric revised upward" }
+    ],
+    "affected_funds": [
+      { "fund": "Demo Growth Fund", "reason": "holds NVIDIA at 11.5% (inbound HOLDS, 1 hop)", "hops": 1 },
+      { "fund": "Demo Focused Growth Fund", "reason": "holds NVIDIA at 16.0% (inbound HOLDS, 1 hop)", "hops": 1 }
+    ],
+    "stale_sections": [
+      { "form_ref": "S000090001:485BPOS", "item": "principal_risks/concentration", "title": "Company and Sector Concentration Risk", "reason": "COVERS the Customer-concentration risk factor whose exposure changed" },
+      { "form_ref": "S000090002:485BPOS", "item": "principal_risks/concentration", "title": "Non-Diversification and Concentration Risk", "reason": "COVERS the Customer-concentration risk factor whose exposure changed" }
+    ]
+  },
+  {
+    "id": "impact-nvda-revenue",
+    "trigger_doc_id": "nvda_10k",
+    "trigger_title": "NVIDIA FY2025 revenue restatement (MetricObservation change)",
+    "created_at": "2026-07-24T09:30:00Z",
+    "rule": "changed_metric_to_reports",
+    "summary": "The NVIDIA FY2025 GAAP revenue observation changed. One generated report pack that cited this metric via DERIVED_FROM is flagged out-of-date.",
+    "added": [],
+    "removed": [],
+    "changed": [
+      { "subject": "NVIDIA", "predicate": "REPORTED", "object": "revenue|FY2025|GAAP", "detail": "value 130.5 → 132.1 (USD_bn)" }
+    ],
+    "affected_funds": [
+      { "fund": "Demo Growth Fund", "reason": "NVIDIA is a top holding referenced in the quarterly risk pack", "hops": 2 }
+    ],
+    "stale_sections": [],
+    "reports_flagged": ["rep-2026Q2-growth"]
+  },
+  {
+    "id": "impact-tsmc-asml",
+    "trigger_doc_id": "tsmc_20f",
+    "trigger_title": "TSMC 20-F — EUV sole-source language added (SUPPLIES_TO change)",
+    "created_at": "2026-07-21T16:45:00Z",
+    "rule": "changed_supplier_to_funds",
+    "summary": "TSMC's dependence on ASML for EUV lithography was upgraded to sole-source. Following SUPPLIES_TO up to 2 hops and then HOLDS, both funds are flagged as reachable through the second-order chokepoint.",
+    "added": [
+      { "subject": "Taiwan Semiconductor Mfg.", "predicate": "SUPPLIES_TO", "object": "ASML Holding", "detail": "criticality upgraded → critical / sole-source" }
+    ],
+    "removed": [],
+    "changed": [],
+    "affected_funds": [
+      { "fund": "Demo Growth Fund", "reason": "holds NVIDIA/AMD/Apple/Broadcom → TSMC → ASML (2 hops)", "hops": 2 },
+      { "fund": "Demo Focused Growth Fund", "reason": "holds NVIDIA/AMD/Apple/Broadcom → TSMC → ASML (2 hops)", "hops": 2 }
+    ],
+    "stale_sections": []
+  }
+]

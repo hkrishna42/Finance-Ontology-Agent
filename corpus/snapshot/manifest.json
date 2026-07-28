@@ -1,0 +1,9 @@
+{
+  "source": "fixtures/seed_graph.cypher",
+  "embed_backend": "hash",
+  "embed_model_note": "HashEmbedder (deterministic offline stub); full mode re-embeds with fastembed",
+  "vector_dim": 384,
+  "chunk_count": 4,
+  "statement_count": 37,
+  "cypher_sha256": "8481928cbe134248bbf4aa7d662e857c89d027212ee3a715fa2aa58ba959faee"
+}

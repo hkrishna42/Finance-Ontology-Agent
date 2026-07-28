@@ -1,0 +1,19 @@
+[
+  {
+    "firm_id": "demo_investment_management",
+    "name": "Demo Investment Management",
+    "lei": null,
+    "cik": null,
+    "status": "demo",
+    "source": "demo",
+    "is_active": true,
+    "fund_count": 2,
+    "funds": [
+      { "name": "Demo Growth Fund", "series_id": "S000090001", "cik": "0009000001", "lei": "DEMOGROWTHFUND000001" },
+      { "name": "Demo Focused Growth Fund", "series_id": "S000090002", "cik": "0009000002", "lei": "DEMOFOCUSEDGRWTH0001" }
+    ],
+    "identifiers": { "series": ["S000090001", "S000090002"] },
+    "created_at": "2026-01-01 00:00:00",
+    "updated_at": "2026-01-01 00:00:00"
+  }
+]

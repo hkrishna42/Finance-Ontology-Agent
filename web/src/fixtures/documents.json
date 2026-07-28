@@ -1,0 +1,53 @@
+[
+  {
+    "doc_id": "nvda_10k",
+    "title": "NVIDIA FY2025 Annual Report (Form 10-K)",
+    "doc_type": "10-K",
+    "sensitivity": "public",
+    "filing_date": "2026-02-26",
+    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810",
+    "text": "Item 1A. Risk Factors\n\nRisks Related to Manufacturing and Supply\n\nWe depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs, and on advanced packaging capacity that is currently constrained. We do not operate our own fabrication facilities, and any disruption in the supply of leading-edge wafers or CoWoS packaging could materially and adversely affect our ability to meet customer demand. Qualifying an alternative foundry for our most advanced process nodes would take a significant amount of time and may not be possible on comparable terms.\n\nRisks Related to Customer Concentration\n\nA limited number of hyperscale customers account for a substantial portion of our data center revenue. The loss of one or more of these customers, or a reduction in their purchases, could materially harm our results of operations. Many of these customers are also developing their own accelerators, which could reduce their long-term demand for our products.\n\nRisks Related to Government Regulation and Export Controls\n\nExport restrictions imposed by the United States government on sales of certain of our products may materially harm our business, and the scope of these controls has expanded over successive periods.",
+    "spans": [
+      { "chunk_id": "nvda_10k_c1", "quote": "We depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs", "label": "SUPPLIES_TO NVIDIA→TSMC", "sensitivity": "public" },
+      { "chunk_id": "nvda_10k_c2", "quote": "A limited number of hyperscale customers account for a substantial portion of our data center revenue.", "label": "EXPOSED_TO Customer concentration", "sensitivity": "public" },
+      { "chunk_id": "nvda_10k_c3", "quote": "Export restrictions imposed by the United States government on sales of certain of our products may materially harm our business", "label": "EXPOSED_TO Export controls and geopolitics", "sensitivity": "public" }
+    ]
+  },
+  {
+    "doc_id": "tsmc_20f",
+    "title": "TSMC FY2024 Annual Report (Form 20-F)",
+    "doc_type": "20-F",
+    "sensitivity": "public",
+    "filing_date": "2026-04-16",
+    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001046179",
+    "text": "Item 3.D. Risk Factors\n\nDependence on Key Equipment Suppliers\n\nOur leading-edge manufacturing depends on extreme ultraviolet (EUV) lithography systems supplied by ASML. ASML is currently the sole commercial supplier of EUV scanners, and any interruption in the delivery, servicing or upgrade of this equipment could delay our capacity expansion for advanced nodes. Geopolitical developments affecting cross-strait relations could further constrain the availability of critical inputs.",
+    "spans": [
+      { "chunk_id": "tsmc_20f_c1", "quote": "Our leading-edge manufacturing depends on extreme ultraviolet (EUV) lithography systems supplied by ASML.", "label": "SUPPLIES_TO TSMC→ASML", "sensitivity": "public" },
+      { "chunk_id": "tsmc_20f_c2", "quote": "Geopolitical developments affecting cross-strait relations could further constrain the availability of critical inputs.", "label": "EXPOSED_TO Export controls and geopolitics", "sensitivity": "public" }
+    ]
+  },
+  {
+    "doc_id": "amd_10k",
+    "title": "AMD FY2024 Annual Report (Form 10-K)",
+    "doc_type": "10-K",
+    "sensitivity": "public",
+    "filing_date": "2026-02-04",
+    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000002488",
+    "text": "Item 1A. Risk Factors\n\nWe rely on third-party foundry partners, and AMD relies on TSMC for the manufacture of its leading-edge processors. We do not own the fabrication facilities required to manufacture our most advanced products, and a disruption at our foundry partners could materially affect our ability to supply the market. Competition in the market for AI accelerators and data-center processors is intense and continues to increase.",
+    "spans": [
+      { "chunk_id": "amd_10k_c1", "quote": "AMD relies on TSMC for the manufacture of its leading-edge processors", "label": "SUPPLIES_TO AMD→TSMC", "sensitivity": "public" },
+      { "chunk_id": "amd_10k_c2", "quote": "Competition in the market for AI accelerators and data-center processors is intense", "label": "EXPOSED_TO AI accelerator competition", "sensitivity": "public" }
+    ]
+  },
+  {
+    "doc_id": "internal_note",
+    "title": "NVDA supply chain follow-up (SYNTHETIC — internal)",
+    "doc_type": "analyst_note",
+    "sensitivity": "internal",
+    "filing_date": "2026-07-20",
+    "text": "INTERNAL — NOT FOR EXTERNAL DISTRIBUTION (synthetic demo content)\n\nOne hyperscale customer is negotiating multi-year committed capacity that would push NVDA concentration above the level disclosed in the 10-K. If signed, this would move the position further outside the band described in the public filings and may warrant an updated risk note for both funds.",
+    "spans": [
+      { "chunk_id": "internal_note_c1", "quote": "One hyperscale customer is negotiating multi-year committed capacity that would push NVDA concentration above the level disclosed in the 10-K.", "label": "internal-only — withheld under the wall", "sensitivity": "internal" }
+    ]
+  }
+]

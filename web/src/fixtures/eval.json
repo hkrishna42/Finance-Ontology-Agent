@@ -1,0 +1,45 @@
+[
+  {
+    "id": "extraction_pr",
+    "title": "Extraction precision / recall",
+    "description": "Entity + relation extraction vs. a hand-labelled golden set. Wired in M8; values below are placeholder targets.",
+    "status": "placeholder",
+    "metrics": [
+      { "label": "Entity precision", "value": null, "unit": "%", "target": 90 },
+      { "label": "Entity recall", "value": null, "unit": "%", "target": 80 },
+      { "label": "Relation precision", "value": null, "unit": "%", "target": 85 },
+      { "label": "Relation recall", "value": null, "unit": "%", "target": 70 }
+    ]
+  },
+  {
+    "id": "grounding",
+    "title": "Grounding gate — span faithfulness",
+    "description": "Share of extracted facts whose verbatim span is found in the source chunk (invented spans are dropped). Wired in M8.",
+    "status": "placeholder",
+    "metrics": [
+      { "label": "Spans verified", "value": null, "unit": "%", "target": 100 },
+      { "label": "Facts dropped (ungrounded)", "value": null, "unit": "%" }
+    ]
+  },
+  {
+    "id": "vector_vs_graph",
+    "title": "Vector RAG vs. Graph answer",
+    "description": "Head-to-head on the hero question set — multi-hop correctness, aggregation, and citation coverage. Wired in M8.",
+    "status": "placeholder",
+    "metrics": [
+      { "label": "Graph multi-hop correct", "value": null, "unit": "/ 12" },
+      { "label": "Vector multi-hop correct", "value": null, "unit": "/ 12" },
+      { "label": "Citation coverage (graph)", "value": null, "unit": "%", "target": 100 }
+    ]
+  },
+  {
+    "id": "entitlement",
+    "title": "Entitlement wall — leakage",
+    "description": "Confirms zero internal-sensitivity chunks leak into answers when the wall is on. Wired in M8.",
+    "status": "placeholder",
+    "metrics": [
+      { "label": "Internal-source leaks", "value": null, "unit": "count", "target": 0 },
+      { "label": "Withheld correctly surfaced", "value": null, "unit": "%", "target": 100 }
+    ]
+  }
+]

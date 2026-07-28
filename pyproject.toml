@@ -1,0 +1,98 @@
+[project]
+name = "firm-ontology-platform"
+version = "0.1.0"
+description = "Multi-agent knowledge-graph extraction + analytics over SEC filings (anonymized demo)"
+requires-python = ">=3.11"
+readme = "README.md"
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "anthropic>=0.69",
+    "fastembed>=0.4",
+    "neo4j>=5.20",
+    "sse-starlette>=2.1",
+    "jinja2>=3.1",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "rapidfuzz>=3.9",
+    "tenacity>=8.3",
+    "python-multipart>=0.0.9",
+    "jsonschema>=4.21",
+]
+
+[project.optional-dependencies]
+# EDGAR pull + HTML-first parsing. This is the ingest path that has code and that the api image
+# bakes: born-digital SEC filings are HTML/XBRL, parsed with bs4/lxml — no OCR, no ML models.
+ingest = [
+    "edgartools>=3.0",
+    "sec-edgar-downloader>=5.0",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.2",
+]
+# Optional heavy table/exhibit parsing via Docling. Kept out of the default api image because it
+# pulls torch (+ the full CUDA toolkit on linux → multi-GB), and nothing in the codebase calls it
+# yet — it's reserved for future PDF/table extraction. Install with `uv sync --extra ingest-tables`
+# (or set INSTALL_DOCLING=true for the api image build) if you need it.
+ingest-tables = [
+    "docling>=2.0",
+]
+# PDF report rendering (system libs pango/cairo). Only needed for M7 PDF export.
+reports = [
+    "weasyprint>=62",
+]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-PyYAML>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["api"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Frozen contract files: the `class X(str, Enum)` pattern (a deliberate StrEnum-equivalent for
+# py3.11) and forward-ref quotes are intentional and MUST NOT be auto-migrated — switching to
+# enum.StrEnum changes str(member) output and would be a contract change. Scope the UP rules off
+# these files only; all other code is still held to the full ruleset.
+"api/ontology/schema.py" = ["UP042"]
+"api/contracts/events.py" = ["UP042"]
+"api/providers/base.py" = ["UP042", "UP037"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+# numpy (transitive via fastembed) ships py3.12-only `type` statements in its stubs, which mypy
+# rejects while targeting 3.11 and which otherwise halts all checking. Skip following into it.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
+ignore_errors = true

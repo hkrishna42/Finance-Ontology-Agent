@@ -1,0 +1,37 @@
+# Change-impact propagation policy (M6). Reviewable, hop-limited, declarative.
+# The fact-diff engine yields {added, removed, changed} triples; for each, the propagation
+# engine applies the matching rule below to find the downstream impact set. Every hop is cited.
+version: 1
+hop_limit: 2
+
+rules:
+  # A changed issuer (Company node/facts) → the funds that hold it (1 hop, inbound HOLDS).
+  - name: changed_issuer_to_funds
+    trigger: { kind: entity, label: Company, change: [added, removed, changed] }
+    traverse:
+      - { relation: HOLDS, direction: inbound, from: Fund, hops: 1 }
+    effect: recompute_fund_exposure
+
+  # A changed supplier edge → dependent holdings (≤2 hops up SUPPLIES_TO) → their funds.
+  - name: changed_supplier_to_funds
+    trigger: { kind: relation, type: SUPPLIES_TO, change: [added, removed, changed] }
+    traverse:
+      - { relation: SUPPLIES_TO, direction: inbound, hops: 2 } # supplier-of-supplier reach
+      - { relation: HOLDS, direction: inbound, from: Fund, hops: 1 }
+    effect: flag_dependent_funds
+
+  # A changed/added risk exposure → prospectus disclosure sections that cover it → mark stale.
+  - name: changed_risk_to_disclosure
+    trigger: { kind: relation, type: EXPOSED_TO, change: [added, changed] }
+    traverse:
+      - { relation: COVERS, direction: inbound, from: DisclosureSection, hops: 1 }
+    effect: mark_stale
+    target_flag: { label: DisclosureSection, prop: stale, value: true }
+
+  # A changed metric → generated reports that cited it → flag out-of-date.
+  - name: changed_metric_to_reports
+    trigger: { kind: entity, label: MetricObservation, change: [added, changed] }
+    traverse:
+      - { relation: DERIVED_FROM, direction: inbound, from: GeneratedReport, hops: 1 }
+    effect: flag_report_out_of_date
+    target_flag: { label: GeneratedReport, prop: out_of_date, value: true }

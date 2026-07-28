@@ -1,0 +1,36 @@
+{
+  "version": "v1",
+  "document": {
+    "doc_id": "nvda_10k",
+    "doc_type": "10-K",
+    "title": "NVIDIA FY2025 10-K",
+    "filing_date": "2026-02-26"
+  },
+  "facts": [
+    {
+      "kind": "relation",
+      "type": "SUPPLIES_TO",
+      "subject": "NVIDIA",
+      "object": "Taiwan Semiconductor Manufacturing",
+      "qualifiers": {
+        "criticality": "critical",
+        "component": "advanced GPU foundry / CoWoS packaging"
+      },
+      "span": "We depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs",
+      "doc_id": "nvda_10k",
+      "chunk_id": "nvda_10k_c1"
+    },
+    {
+      "kind": "relation",
+      "type": "EXPOSED_TO",
+      "subject": "NVIDIA",
+      "object": "Customer concentration",
+      "qualifiers": {
+        "severity_language": "a limited number of customers account for a substantial portion of revenue"
+      },
+      "span": "A limited number of hyperscale customers account for a substantial portion of our data center revenue.",
+      "doc_id": "nvda_10k",
+      "chunk_id": "nvda_10k_c2"
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "default": "tsmc_exposure",
+  "keywords": {
+    "tsmc_exposure": ["tsmc", "supplier", "supply", "foundry", "chokepoint", "disruption", "concentrat"],
+    "board_interlock": ["board", "director", "interlock", "sits on", "sit on", "both"],
+    "disclosure_gap": ["prospectus", "disclosure", "disclosed", "485", "coverage", "gap"],
+    "customer_concentration": ["customer", "revenue", "hyperscale", "concentration risk"]
+  },
+  "queries": {
+    "tsmc_exposure": {
+      "question": "Which funds are most exposed to a TSMC manufacturing disruption?",
+      "mode": "side_by_side",
+      "answer": "Both funds are materially exposed to a disruption at Taiwan Semiconductor (TSMC). Four held issuers — NVIDIA, AMD, Apple and Broadcom — each disclose a critical foundry dependence on TSMC, so the exposure aggregates across positions rather than sitting in a single name. In the Demo Focused Growth Fund those four names total 37.5% of assets; in the Demo Growth Fund they total 27.5%. The dependence is also second-order: TSMC's own leading-edge output depends critically on EUV lithography from ASML, so a single ASML/EUV shock would propagate to every one of those holdings.",
+      "citations": [
+        { "id": "c1", "doc_id": "nvda_10k", "chunk_id": "nvda_10k_c1", "page": "22", "title": "NVIDIA FY2025 10-K", "sensitivity": "public", "span": "We depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs" },
+        { "id": "c2", "doc_id": "tsmc_20f", "chunk_id": "tsmc_20f_c1", "page": "15", "title": "TSMC FY2024 20-F", "sensitivity": "public", "span": "Our leading-edge manufacturing depends on extreme ultraviolet (EUV) lithography systems supplied by ASML" }
+      ],
+      "graph_paths": [
+        { "label": "Demo Focused Growth Fund → NVIDIA → TSMC", "steps": [
+          { "from": "Demo Focused Growth Fund", "rel": "HOLDS", "to": "NVIDIA", "qualifiers": { "weight_pct": "16.0" } },
+          { "from": "NVIDIA", "rel": "SUPPLIES_TO", "to": "Taiwan Semiconductor Mfg.", "qualifiers": { "criticality": "critical" } }
+        ]},
+        { "label": "Second-order chokepoint TSMC → ASML", "steps": [
+          { "from": "Taiwan Semiconductor Mfg.", "rel": "SUPPLIES_TO", "to": "ASML Holding", "qualifiers": { "criticality": "critical", "component": "EUV lithography" } }
+        ]}
+      ],
+      "plan": {
+        "strategy": "graph-first multi-hop traversal, then ground each edge in a cited span",
+        "steps": [
+          "Resolve 'TSMC' → Company{name: Taiwan Semiconductor Manufacturing}",
+          "Traverse inbound SUPPLIES_TO (criticality=critical) to find dependent issuers",
+          "Traverse inbound HOLDS to attribute each issuer to funds and sum weights",
+          "Traverse outbound SUPPLIES_TO from TSMC for second-order (ASML) exposure",
+          "Attach the grounding span for every edge on the path"
+        ]
+      },
+      "cypher": "MATCH (f:Fund)-[h:HOLDS]->(c:Company)-[s:SUPPLIES_TO {criticality:'critical'}]->(t:Company {name:'Taiwan Semiconductor Manufacturing'})\nRETURN f.name AS fund, sum(h.weight_pct) AS exposed_weight, collect(c.name) AS via\nORDER BY exposed_weight DESC",
+      "withheld_count": 0,
+      "vector_answer": "NVIDIA depends on a limited number of foundries, principally TSMC, for the fabrication of its GPUs. This is described as a supply-chain risk in NVIDIA's 10-K.",
+      "vector_fragments": [
+        { "chunk_id": "nvda_10k_c1", "doc_id": "nvda_10k", "score": 0.83, "title": "NVIDIA FY2025 10-K", "text": "We depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs, and on advanced packaging capacity that is currently constrained." },
+        { "chunk_id": "tsmc_20f_c1", "doc_id": "tsmc_20f", "score": 0.71, "title": "TSMC FY2024 20-F", "text": "Our leading-edge manufacturing depends on extreme ultraviolet (EUV) lithography systems supplied by ASML." },
+        { "chunk_id": "nvda_10k_c2", "doc_id": "nvda_10k", "score": 0.44, "title": "NVIDIA FY2025 10-K", "text": "A limited number of hyperscale customers account for a substantial portion of our data center revenue." }
+      ]
+    },
+
+    "board_interlock": {
+      "question": "Do any board members sit on the boards of two companies we hold?",
+      "mode": "graph",
+      "answer": "Yes. Ada Interlock is a director of both NVIDIA (Audit committee) and Microsoft (Compensation committee) — both held by both funds. This is a board interlock across two of the portfolio's largest positions (a combined 20.5% of the Demo Growth Fund and 28.0% of the Demo Focused Growth Fund), which is relevant to independence and governance-concentration review.",
+      "citations": [
+        { "id": "c1", "doc_id": "nvda_def14a", "chunk_id": "nvda_def14a_c1", "page": "31", "title": "NVIDIA DEF 14A", "sensitivity": "public", "span": "Ada Interlock has served as a director since 2019 and is a member of the Audit Committee." }
+      ],
+      "graph_paths": [
+        { "label": "Board interlock via Ada Interlock", "steps": [
+          { "from": "Ada Interlock", "rel": "DIRECTOR_OF", "to": "NVIDIA", "qualifiers": { "committee": "Audit" } },
+          { "from": "Ada Interlock", "rel": "DIRECTOR_OF", "to": "Microsoft", "qualifiers": { "committee": "Compensation" } }
+        ]}
+      ],
+      "plan": {
+        "strategy": "graph pattern match for shared Person across DIRECTOR_OF edges",
+        "steps": [
+          "Match (p:Person)-[:DIRECTOR_OF]->(c:Company) with degree ≥ 2",
+          "Keep only companies that are HELD by a Fund",
+          "Return the person and the two companies with committee qualifiers"
+        ]
+      },
+      "cypher": "MATCH (p:Person)-[:DIRECTOR_OF]->(c:Company)<-[:HOLDS]-(:Fund)\nWITH p, collect(DISTINCT c.name) AS boards\nWHERE size(boards) >= 2\nRETURN p.name AS person, boards",
+      "withheld_count": 0
+    },
+
+    "disclosure_gap": {
+      "question": "Is the funds' supply-chain / foundry risk disclosed in their prospectus?",
+      "mode": "graph",
+      "answer": "No — this is a disclosure coverage gap. NVIDIA, AMD, Apple, Broadcom and TSMC are all EXPOSED_TO the 'Advanced foundry / supply concentration' risk factor (category supply_chain), and both funds hold those issuers, but neither fund's 485BPOS prospectus has a principal-risk section that COVERS that risk factor. The prospectuses cover technology, customer/sector concentration and regulatory risk, but not the foundry-concentration exposure that the holdings actually carry.",
+      "citations": [
+        { "id": "c1", "doc_id": "nvda_10k", "chunk_id": "nvda_10k_c1", "page": "22", "title": "NVIDIA FY2025 10-K", "sensitivity": "public", "span": "We depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs" }
+      ],
+      "graph_paths": [
+        { "label": "Exposure present …", "steps": [
+          { "from": "NVIDIA", "rel": "EXPOSED_TO", "to": "Advanced foundry / supply concentration", "qualifiers": { "category": "supply_chain" } }
+        ]},
+        { "label": "… but no COVERS edge from either prospectus", "steps": [
+          { "from": "S000090001:485BPOS (Growth prospectus)", "rel": "COVERS?", "to": "Advanced foundry / supply concentration", "qualifiers": { "result": "MISSING" } }
+        ]}
+      ],
+      "plan": {
+        "strategy": "anti-join: exposure edges present, matching COVERS edges absent",
+        "steps": [
+          "Find RiskFactor nodes with an inbound EXPOSED_TO from a held Company",
+          "Left-join DisclosureSection-[:COVERS]->RiskFactor for the funds' forms",
+          "Return risk factors where the COVERS side is null (the gap)"
+        ]
+      },
+      "cypher": "MATCH (c:Company)<-[:HOLDS]-(:Fund)\nMATCH (c)-[:EXPOSED_TO]->(rf:RiskFactor {category:'supply_chain'})\nWHERE NOT EXISTS { MATCH (:DisclosureSection)-[:COVERS]->(rf) }\nRETURN DISTINCT rf.title AS uncovered_risk, collect(DISTINCT c.name) AS exposed_issuers",
+      "withheld_count": 0
+    },
+
+    "customer_concentration": {
+      "question": "What is driving NVIDIA's customer-concentration risk right now?",
+      "mode": "graph",
+      "answer": "NVIDIA discloses that a limited number of hyperscale customers account for a substantial portion of its data-center revenue; in the graph, Microsoft, Meta and Amazon are all modelled as CUSTOMER_OF NVIDIA and are themselves top-10 holdings in both funds. Note: 1 source that bears on the current trajectory of this concentration is withheld under the internal-information wall and is not reflected in this answer.",
+      "citations": [
+        { "id": "c1", "doc_id": "nvda_10k", "chunk_id": "nvda_10k_c2", "page": "24", "title": "NVIDIA FY2025 10-K", "sensitivity": "public", "span": "A limited number of hyperscale customers account for a substantial portion of our data center revenue." }
+      ],
+      "graph_paths": [
+        { "label": "Hyperscaler customers of NVIDIA", "steps": [
+          { "from": "Microsoft", "rel": "CUSTOMER_OF", "to": "NVIDIA" },
+          { "from": "Meta Platforms", "rel": "CUSTOMER_OF", "to": "NVIDIA" },
+          { "from": "Amazon", "rel": "CUSTOMER_OF", "to": "NVIDIA" }
+        ]}
+      ],
+      "plan": {
+        "strategy": "graph neighbourhood on CUSTOMER_OF, entitlement filter applied before answer synthesis",
+        "steps": [
+          "Match (c:Company)-[:CUSTOMER_OF]->(NVIDIA)",
+          "Apply entitlement filter: drop chunks with sensitivity=internal for this caller",
+          "Synthesize answer over the remaining (public) evidence and report withheld count"
+        ]
+      },
+      "cypher": "MATCH (c:Company)-[:CUSTOMER_OF]->(n:Company {name:'NVIDIA'})\nRETURN collect(c.name) AS customers",
+      "withheld_count": 1
+    }
+  }
+}

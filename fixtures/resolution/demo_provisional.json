@@ -1,0 +1,46 @@
+[
+  {
+    "id": "prov-customer-a",
+    "label": "Company",
+    "name": "Customer A",
+    "aliases": ["one hyperscale customer", "a limited number of hyperscale customers"],
+    "span": "A limited number of hyperscale customers account for a substantial portion of our data center revenue.",
+    "doc_id": "nvda_10k",
+    "chunk_id": "nvda_10k_c2",
+    "confidence": 0.41,
+    "status": "pending",
+    "candidates": [
+      { "existing_id": "Microsoft", "name": "Microsoft", "label": "Company", "score": 0.62, "reason": "modelled CUSTOMER_OF NVIDIA; top-weight hyperscaler holding" },
+      { "existing_id": "Meta Platforms", "name": "Meta Platforms", "label": "Company", "score": 0.55, "reason": "modelled CUSTOMER_OF NVIDIA" },
+      { "existing_id": "Amazon", "name": "Amazon", "label": "Company", "score": 0.5, "reason": "modelled CUSTOMER_OF NVIDIA" }
+    ]
+  },
+  {
+    "id": "prov-taiwan-semi",
+    "label": "Company",
+    "name": "Taiwan Semi",
+    "aliases": ["TSMC", "Taiwan Semiconductor"],
+    "span": "AMD relies on TSMC for the manufacture of its leading-edge processors.",
+    "doc_id": "amd_10k",
+    "chunk_id": "nvda_10k_c1",
+    "confidence": 0.88,
+    "status": "pending",
+    "candidates": [
+      { "existing_id": "Taiwan Semiconductor Manufacturing", "name": "Taiwan Semiconductor Manufacturing", "label": "Company", "score": 0.93, "reason": "alias 'Taiwan Semiconductor' + ticker TSM; normalized-name match" }
+    ]
+  },
+  {
+    "id": "prov-a-interlock",
+    "label": "Person",
+    "name": "A. Interlock",
+    "aliases": ["Ada Interlock"],
+    "span": "A. Interlock joined the board's audit committee in 2019.",
+    "doc_id": "msft_def14a",
+    "chunk_id": "msft_def14a_c2",
+    "confidence": 0.72,
+    "status": "pending",
+    "candidates": [
+      { "existing_id": "Ada Interlock", "name": "Ada Interlock", "label": "Person", "score": 0.79, "reason": "alias match; shared NVIDIA/Microsoft board (possible interlock)" }
+    ]
+  }
+]

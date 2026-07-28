@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC NPORT-P fixture (not a real SEC filing). Focused Growth = concentrated book
+     (8 positions, higher weights). Holdings/weights are the shared demo set. -->
+<edgarSubmission xmlns="http://www.sec.gov/edgar/nport" xmlns:com="http://www.sec.gov/edgar/common">
+  <headerData>
+    <submissionType>NPORT-P</submissionType>
+    <filerInfo>
+      <filer>
+        <issuerCredentials>
+          <cik>0009000002</cik>
+        </issuerCredentials>
+      </filer>
+      <seriesClassInfo>
+        <seriesId>S000090002</seriesId>
+      </seriesClassInfo>
+    </filerInfo>
+  </headerData>
+  <formData>
+    <genInfo>
+      <regName>Demo Investments LLC</regName>
+      <regCik>0009000002</regCik>
+      <regLei>DEMOADVISER000000001</regLei>
+      <seriesName>Demo Focused Growth Fund</seriesName>
+      <seriesId>S000090002</seriesId>
+      <seriesLei>DEMOFOCUSEDGRWTH0001</seriesLei>
+      <repPdEnd>2026-05-31</repPdEnd>
+      <repPdDate>2026-05-31</repPdDate>
+    </genInfo>
+    <fundInfo>
+      <totAssets>3050000000.00</totAssets>
+      <totLiabs>50000000.00</totLiabs>
+      <netAssets>3000000000.00</netAssets>
+    </fundInfo>
+    <invstOrSecs>
+      <invstOrSec>
+        <name>NVIDIA</name>
+        <lei>549300N1KM4WQE9DTA96</lei>
+        <title>NVIDIA Corp</title>
+        <cusip>67066G104</cusip>
+        <identifiers><ticker value="NVDA"/></identifiers>
+        <balance>1250000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>480000000.00</valUSD>
+        <pctVal>16.0</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+      <invstOrSec>
+        <name>Microsoft</name>
+        <lei>INR2EJN1ERAN0W5ZP974</lei>
+        <title>Microsoft Corp</title>
+        <cusip>594918104</cusip>
+        <identifiers><ticker value="MSFT"/></identifiers>
+        <balance>800000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>360000000.00</valUSD>
+        <pctVal>12.0</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+      <invstOrSec>
+        <name>Apple</name>
+        <lei>HWUPKR0MPOU8FGXBT394</lei>
+        <title>Apple Inc</title>
+        <cusip>037833100</cusip>
+        <identifiers><ticker value="AAPL"/></identifiers>
+        <balance>1350000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>270000000.00</valUSD>
+        <pctVal>9.0</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+      <invstOrSec>
+        <name>Amazon</name>
+        <lei>ZXTILKJKG63JELOEG630</lei>
+        <title>Amazon.com Inc</title>
+        <cusip>023135106</cusip>
+        <identifiers><ticker value="AMZN"/></identifiers>
+        <balance>1275000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>255000000.00</valUSD>
+        <pctVal>8.5</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+      <invstOrSec>
+        <name>Broadcom</name>
+        <lei>5493007LFMLNCV37AN20</lei>
+        <title>Broadcom Inc</title>
+        <cusip>11135F101</cusip>
+        <identifiers><ticker value="AVGO"/></identifiers>
+        <balance>790000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>225000000.00</valUSD>
+        <pctVal>7.5</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+      <invstOrSec>
+        <name>Meta Platforms</name>
+        <lei>BQ4BKCS1HXDV9HN80Z93</lei>
+        <title>Meta Platforms Inc</title>
+        <cusip>30303M102</cusip>
+        <identifiers><ticker value="META"/></identifiers>
+        <balance>270000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>195000000.00</valUSD>
+        <pctVal>6.5</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+      <invstOrSec>
+        <name>Eli Lilly</name>
+        <lei>5493006R8GDNH0TDNT47</lei>
+        <title>Eli Lilly &amp; Co</title>
+        <cusip>532457108</cusip>
+        <identifiers><ticker value="LLY"/></identifiers>
+        <balance>225000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>180000000.00</valUSD>
+        <pctVal>6.0</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+      <invstOrSec>
+        <name>Advanced Micro Devices</name>
+        <lei>OGO4KELULBRZBOAB9F42</lei>
+        <title>Advanced Micro Devices Inc</title>
+        <cusip>007903107</cusip>
+        <identifiers><ticker value="AMD"/></identifiers>
+        <balance>910000</balance>
+        <units>NS</units>
+        <curCd>USD</curCd>
+        <valUSD>150000000.00</valUSD>
+        <pctVal>5.0</pctVal>
+        <payoffProfile>Long</payoffProfile>
+        <assetCat>EC</assetCat>
+        <issuerCat>CORP</issuerCat>
+      </invstOrSec>
+    </invstOrSecs>
+  </formData>
+</edgarSubmission>

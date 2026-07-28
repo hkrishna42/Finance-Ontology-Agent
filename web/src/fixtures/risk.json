@@ -1,0 +1,121 @@
+{
+  "concentration": [
+    { "fund": "Demo Focused Growth Fund", "issuer": "NVIDIA", "ticker": "NVDA", "weight_pct": 16.0, "value_usd": 480000000 },
+    { "fund": "Demo Focused Growth Fund", "issuer": "Microsoft", "ticker": "MSFT", "weight_pct": 12.0, "value_usd": 360000000 },
+    { "fund": "Demo Focused Growth Fund", "issuer": "Apple", "ticker": "AAPL", "weight_pct": 9.0, "value_usd": 270000000 },
+    { "fund": "Demo Focused Growth Fund", "issuer": "Amazon", "ticker": "AMZN", "weight_pct": 8.5, "value_usd": 255000000 },
+    { "fund": "Demo Focused Growth Fund", "issuer": "Broadcom", "ticker": "AVGO", "weight_pct": 7.5, "value_usd": 225000000 },
+    { "fund": "Demo Focused Growth Fund", "issuer": "Meta Platforms", "ticker": "META", "weight_pct": 6.5, "value_usd": 195000000 },
+    { "fund": "Demo Focused Growth Fund", "issuer": "Eli Lilly", "ticker": "LLY", "weight_pct": 6.0, "value_usd": 180000000 },
+    { "fund": "Demo Focused Growth Fund", "issuer": "Advanced Micro Devices", "ticker": "AMD", "weight_pct": 5.0, "value_usd": 150000000 },
+    { "fund": "Demo Growth Fund", "issuer": "NVIDIA", "ticker": "NVDA", "weight_pct": 11.5, "value_usd": 920000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Microsoft", "ticker": "MSFT", "weight_pct": 9.0, "value_usd": 720000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Apple", "ticker": "AAPL", "weight_pct": 7.5, "value_usd": 600000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Amazon", "ticker": "AMZN", "weight_pct": 7.0, "value_usd": 560000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Meta Platforms", "ticker": "META", "weight_pct": 5.5, "value_usd": 440000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Broadcom", "ticker": "AVGO", "weight_pct": 5.0, "value_usd": 400000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Eli Lilly", "ticker": "LLY", "weight_pct": 4.5, "value_usd": 360000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Advanced Micro Devices", "ticker": "AMD", "weight_pct": 3.5, "value_usd": 280000000 },
+    { "fund": "Demo Growth Fund", "issuer": "Taiwan Semiconductor Mfg.", "ticker": "TSM", "weight_pct": 2.5, "value_usd": 200000000 }
+  ],
+  "hhi": [
+    {
+      "fund": "Demo Focused Growth Fund",
+      "hhi": 713,
+      "top_weight_pct": 16.0,
+      "interpretation": "Highly concentrated — top position 16.0%, top-4 issuers 45.5% of assets. ~2.6× more concentrated than the diversified sibling fund.",
+      "explain": {
+        "cypher": "MATCH (f:Fund {name:'Demo Focused Growth Fund'})-[h:HOLDS]->(c:Company)\nRETURN round(sum(h.weight_pct ^ 2)) AS hhi, max(h.weight_pct) AS top_weight",
+        "note": "HHI = Σ(weight_pct²) over the fund's disclosed holdings (N-PORT, as of 2026-05-31).",
+        "edges": [
+          { "from": "Demo Focused Growth Fund", "rel": "HOLDS", "to": "NVIDIA", "qualifiers": { "weight_pct": "16.0" } },
+          { "from": "Demo Focused Growth Fund", "rel": "HOLDS", "to": "Microsoft", "qualifiers": { "weight_pct": "12.0" } },
+          { "from": "Demo Focused Growth Fund", "rel": "HOLDS", "to": "Apple", "qualifiers": { "weight_pct": "9.0" } }
+        ]
+      }
+    },
+    {
+      "fund": "Demo Growth Fund",
+      "hhi": 413,
+      "top_weight_pct": 11.5,
+      "interpretation": "Moderately concentrated — top position 11.5%, broader tail across 9+ names.",
+      "explain": {
+        "cypher": "MATCH (f:Fund {name:'Demo Growth Fund'})-[h:HOLDS]->(c:Company)\nRETURN round(sum(h.weight_pct ^ 2)) AS hhi, max(h.weight_pct) AS top_weight",
+        "note": "HHI = Σ(weight_pct²) over the fund's disclosed holdings (N-PORT, as of 2026-05-31).",
+        "edges": [
+          { "from": "Demo Growth Fund", "rel": "HOLDS", "to": "NVIDIA", "qualifiers": { "weight_pct": "11.5" } },
+          { "from": "Demo Growth Fund", "rel": "HOLDS", "to": "Microsoft", "qualifiers": { "weight_pct": "9.0" } }
+        ]
+      }
+    }
+  ],
+  "heatmap": {
+    "companies": ["NVIDIA", "Advanced Micro Devices", "Apple", "Broadcom", "Taiwan Semiconductor Mfg.", "Microsoft"],
+    "categories": ["supply_chain", "customer_concentration", "geopolitical", "technology", "regulatory"],
+    "cells": [
+      { "company": "NVIDIA", "category": "supply_chain", "severity": 3, "severity_language": "substantial dependence on a limited number of foundries" },
+      { "company": "NVIDIA", "category": "customer_concentration", "severity": 3, "severity_language": "a limited number of customers account for a substantial portion of revenue" },
+      { "company": "NVIDIA", "category": "geopolitical", "severity": 2, "severity_language": "export restrictions may materially harm our business" },
+      { "company": "NVIDIA", "category": "technology", "severity": 2, "severity_language": "the market is highly competitive" },
+      { "company": "NVIDIA", "category": "regulatory", "severity": 0 },
+      { "company": "Advanced Micro Devices", "category": "supply_chain", "severity": 2, "severity_language": "we rely on TSMC" },
+      { "company": "Advanced Micro Devices", "category": "customer_concentration", "severity": 0 },
+      { "company": "Advanced Micro Devices", "category": "geopolitical", "severity": 0 },
+      { "company": "Advanced Micro Devices", "category": "technology", "severity": 2, "severity_language": "intense competition" },
+      { "company": "Advanced Micro Devices", "category": "regulatory", "severity": 0 },
+      { "company": "Apple", "category": "supply_chain", "severity": 2, "severity_language": "concentration of manufacturing" },
+      { "company": "Apple", "category": "customer_concentration", "severity": 0 },
+      { "company": "Apple", "category": "geopolitical", "severity": 0 },
+      { "company": "Apple", "category": "technology", "severity": 0 },
+      { "company": "Apple", "category": "regulatory", "severity": 2, "severity_language": "regulatory investigations" },
+      { "company": "Broadcom", "category": "supply_chain", "severity": 2, "severity_language": "dependence on third-party foundries" },
+      { "company": "Broadcom", "category": "customer_concentration", "severity": 0 },
+      { "company": "Broadcom", "category": "geopolitical", "severity": 0 },
+      { "company": "Broadcom", "category": "technology", "severity": 0 },
+      { "company": "Broadcom", "category": "regulatory", "severity": 0 },
+      { "company": "Taiwan Semiconductor Mfg.", "category": "supply_chain", "severity": 3, "severity_language": "dependence on ASML for EUV" },
+      { "company": "Taiwan Semiconductor Mfg.", "category": "customer_concentration", "severity": 0 },
+      { "company": "Taiwan Semiconductor Mfg.", "category": "geopolitical", "severity": 3, "severity_language": "cross-strait tensions" },
+      { "company": "Taiwan Semiconductor Mfg.", "category": "technology", "severity": 0 },
+      { "company": "Taiwan Semiconductor Mfg.", "category": "regulatory", "severity": 0 },
+      { "company": "Microsoft", "category": "supply_chain", "severity": 0 },
+      { "company": "Microsoft", "category": "customer_concentration", "severity": 0 },
+      { "company": "Microsoft", "category": "geopolitical", "severity": 0 },
+      { "company": "Microsoft", "category": "technology", "severity": 0 },
+      { "company": "Microsoft", "category": "regulatory", "severity": 2, "severity_language": "increasing regulatory scrutiny" }
+    ]
+  },
+  "single_source": [
+    {
+      "supplier": "Taiwan Semiconductor Mfg.",
+      "criticality": "critical",
+      "dependents": ["NVIDIA", "Advanced Micro Devices", "Apple", "Broadcom"],
+      "exposed_funds": ["Demo Growth Fund", "Demo Focused Growth Fund"],
+      "aggregate_weight_pct": 37.5,
+      "explain": {
+        "cypher": "MATCH (f:Fund)-[h:HOLDS]->(c:Company)-[:SUPPLIES_TO {criticality:'critical'}]->(t:Company {name:'Taiwan Semiconductor Manufacturing'})\nRETURN t.name AS supplier, f.name AS fund, sum(h.weight_pct) AS exposed_weight, collect(c.name) AS via\nORDER BY exposed_weight DESC",
+        "note": "Aggregate weight is the Demo Focused Growth Fund (worst case); the Demo Growth Fund's four dependents total 27.5%.",
+        "edges": [
+          { "from": "NVIDIA", "rel": "SUPPLIES_TO", "to": "Taiwan Semiconductor Mfg.", "qualifiers": { "criticality": "critical" } },
+          { "from": "Advanced Micro Devices", "rel": "SUPPLIES_TO", "to": "Taiwan Semiconductor Mfg.", "qualifiers": { "criticality": "critical" } },
+          { "from": "Apple", "rel": "SUPPLIES_TO", "to": "Taiwan Semiconductor Mfg.", "qualifiers": { "criticality": "critical" } },
+          { "from": "Broadcom", "rel": "SUPPLIES_TO", "to": "Taiwan Semiconductor Mfg.", "qualifiers": { "criticality": "critical" } }
+        ]
+      }
+    },
+    {
+      "supplier": "ASML Holding",
+      "criticality": "critical",
+      "dependents": ["Taiwan Semiconductor Mfg. (→ NVIDIA, AMD, Apple, Broadcom)"],
+      "exposed_funds": ["Demo Growth Fund", "Demo Focused Growth Fund"],
+      "aggregate_weight_pct": 40.0,
+      "explain": {
+        "cypher": "MATCH (f:Fund)-[h:HOLDS]->(c:Company)-[:SUPPLIES_TO*1..2 {criticality:'critical'}]->(s:Company {name:'ASML Holding'})\nRETURN s.name AS supplier, f.name AS fund, sum(DISTINCT h.weight_pct) AS reachable_weight",
+        "note": "Second-order single point of failure: EUV lithography is sole-sourced from ASML, upstream of TSMC.",
+        "edges": [
+          { "from": "Taiwan Semiconductor Mfg.", "rel": "SUPPLIES_TO", "to": "ASML Holding", "qualifiers": { "criticality": "critical", "component": "EUV lithography systems" } }
+        ]
+      }
+    }
+  ]
+}

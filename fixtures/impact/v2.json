@@ -1,0 +1,50 @@
+{
+  "version": "v2",
+  "document": {
+    "doc_id": "nvda_10k_v2",
+    "doc_type": "10-K/A",
+    "title": "NVIDIA FY2025 10-K/A (amended)",
+    "filing_date": "2026-07-25"
+  },
+  "supersedes": "nvda_10k",
+  "facts": [
+    {
+      "kind": "relation",
+      "type": "SUPPLIES_TO",
+      "subject": "NVIDIA",
+      "object": "Taiwan Semiconductor Manufacturing",
+      "qualifiers": {
+        "criticality": "critical",
+        "component": "advanced GPU foundry / CoWoS packaging"
+      },
+      "span": "We depend on a limited number of foundries, principally Taiwan Semiconductor Manufacturing Company (TSMC), for the fabrication of our GPUs",
+      "doc_id": "nvda_10k_v2",
+      "chunk_id": "nvda_10k_v2_c1"
+    },
+    {
+      "kind": "relation",
+      "type": "SUPPLIES_TO",
+      "subject": "NVIDIA",
+      "object": "SK Hynix",
+      "qualifiers": {
+        "criticality": "critical",
+        "component": "HBM3E high-bandwidth memory"
+      },
+      "span": "Our latest accelerators depend on a single qualified supplier of HBM3E high-bandwidth memory, and any disruption in that supply would materially affect production.",
+      "doc_id": "nvda_10k_v2",
+      "chunk_id": "nvda_10k_v2_c3"
+    },
+    {
+      "kind": "relation",
+      "type": "EXPOSED_TO",
+      "subject": "NVIDIA",
+      "object": "Customer concentration",
+      "qualifiers": {
+        "severity_language": "one hyperscale customer now represents more than 25% of data center revenue, a marked increase from the prior period"
+      },
+      "span": "During fiscal 2025 a single hyperscale customer represented more than 25% of our data center revenue.",
+      "doc_id": "nvda_10k_v2",
+      "chunk_id": "nvda_10k_v2_c2"
+    }
+  ]
+}

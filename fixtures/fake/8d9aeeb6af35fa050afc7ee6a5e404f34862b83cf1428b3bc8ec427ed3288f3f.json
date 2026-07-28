@@ -1,0 +1,10 @@
+{
+  "data": {
+    "entailed": true,
+    "confidence": 0.86
+  },
+  "raw": "{\"entailed\":true,\"confidence\":0.86}",
+  "model": "fake",
+  "usage": {},
+  "stop_reason": "end_turn"
+}

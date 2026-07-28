@@ -1,0 +1,129 @@
+# Corpus manifest — the pinned, reproducible input set.
+# accession + sha256 are filled at build time by scripts/pin_manifest.py (edgartools), so every
+# clone ingests byte-identical inputs. Fund identifiers below were GLEIF-verified.
+edgar_user_agent: "Example Firm Research contact@example.com"
+
+firm:
+  name: "Demo Investment Management"
+
+funds:
+  - name: "Demo Growth Fund"
+    role: primary
+    lei: "DEMOGROWTHFUND000001"      # GLEIF-verified
+    series_id: "S000090001"           # GLEIF registeredAs
+    registrant_cik: "0009000001"      # Demo Portfolios Inc. — verify via series at build
+    tickers: [DGFAX, DGFCX, DGFZX, DGFQX]
+    benchmark: "Russell 1000 Growth"
+  - name: "Demo Focused Growth Fund"
+    role: secondary
+    lei: "DEMOFOCUSEDGRWTH0001"       # GLEIF-verified
+    series_id: "S000090002"           # GLEIF registeredAs
+    registrant_cik: "0009000002"      # Demo Portfolios 3 — verify at build
+    tickers: [DFGAX, DFGCX, DFGZX]
+    concentration: "concentrated (~25-35 holdings)"
+
+# (disambiguation handled at onboarding time)
+
+# section filters: 10-K/20-F -> Items 1,1A,7 ; proxy -> governance/bios ; prospectus -> principal risks
+documents:
+  # --- Anchor issuer + supply-chain hops (pre-ingest) ---
+  - id: nvda_10k
+    issuer: NVIDIA
+    cik: "0001045810"
+    form: 10-K
+    sections: [1, 1A, 7]
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  - id: amd_10k
+    issuer: AMD
+    form: 10-K
+    sections: [1, 1A, 7]
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  - id: tsmc_20f
+    issuer: TSMC
+    form: 20-F
+    sections: [1, 1A, 7]
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  - id: asml_20f
+    issuer: ASML
+    form: 20-F
+    sections: [1A]
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  - id: msft_10k
+    issuer: Microsoft
+    form: 10-K
+    sections: [1, 1A, 7]
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  # --- People layer (issuer proxies) ---
+  - id: nvda_def14a
+    issuer: NVIDIA
+    form: DEF 14A
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  - id: msft_def14a
+    issuer: Microsoft
+    form: DEF 14A
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  # --- Events ---
+  - id: amd_acq_8k
+    issuer: AMD
+    form: 8-K
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  # --- THE LIVE DOC (triggers Change Impact end-to-end in the demo) ---
+  - id: nvda_8k_live
+    issuer: NVIDIA
+    form: 8-K
+    mode: live
+    accession: null
+    sha256: null
+  # --- L3: both funds' prospectus principal-risks (485BPOS) ---
+  - id: growth_485bpos
+    fund: "Demo Growth Fund"
+    series_id: "S000090001"
+    form: 485BPOS
+    sections: [principal_risks]
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  - id: focused_485bpos
+    fund: "Demo Focused Growth Fund"
+    series_id: "S000090002"
+    form: 485BPOS
+    sections: [principal_risks]
+    mode: pre_ingest
+    accession: null
+    sha256: null
+  # --- L2: both funds' latest holdings (NPORT-P, structured parse, not LLM-extracted) ---
+  - id: growth_nport
+    fund: "Demo Growth Fund"
+    series_id: "S000090001"
+    form: NPORT-P
+    mode: structured_parse
+    accession: null
+    sha256: null
+  - id: focused_nport
+    fund: "Demo Focused Growth Fund"
+    series_id: "S000090002"
+    form: NPORT-P
+    mode: structured_parse
+    accession: null
+    sha256: null
+  # --- Entitlement/wall demo (synthetic, obviously fake) ---
+  - id: internal_note
+    path: corpus/internal_note.md
+    sensitivity: internal
+    mode: pre_ingest
