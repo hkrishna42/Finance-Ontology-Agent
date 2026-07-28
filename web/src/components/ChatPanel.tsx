@@ -13,7 +13,7 @@ const SUGGESTIONS = [
   "What is driving NVIDIA's customer-concentration risk right now?",
 ]
 
-export function ChatPanel({ onNavigate }: { onNavigate: (t: NavTarget) => void }) {
+export function ChatPanel({ onNavigate, firm }: { onNavigate: (t: NavTarget) => void; firm?: string | null }) {
   const [question, setQuestion] = useState('')
   const [mode, setMode] = useState<QueryMode>('side_by_side')
   const [wall, setWall] = useState(true)
@@ -25,7 +25,7 @@ export function ChatPanel({ onNavigate }: { onNavigate: (t: NavTarget) => void }
     if (!text) return
     setQuestion(text)
     setBusy(true)
-    const res = await runQuery(text, m, w)
+    const res = await runQuery(text, m, w, firm ?? undefined)
     setResult(res)
     setBusy(false)
   }

@@ -51,9 +51,14 @@ FEW_SHOTS = [
 
 FALLBACK_NOTE = "answered from text, not graph"
 
+# `$firm_companies` firm-scopes the fallback: when a non-null name list is passed, only chunks that
+# MENTION one of the active firm's held companies survive (so a non-demo firm never surfaces demo
+# chunks). Passing NULL (no active firm) leaves the search global — today's behaviour, unchanged.
 VECTOR_CYPHER = (
     "CALL db.index.vector.queryNodes('chunk_embedding', $k, $qv) YIELD node, score "
     "WHERE coalesce(node.sensitivity, 'public') IN $ent "
+    "  AND ($firm_companies IS NULL OR "
+    "       EXISTS { MATCH (node)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies }) "
     "OPTIONAL MATCH (d:Document {doc_id: node.doc_id}) "
     "RETURN node.chunk_id AS chunk_id, node.doc_id AS doc_id, node.text AS text, node.page AS page, "
     "       d.title AS title, coalesce(node.sensitivity,'public') AS sensitivity, score "
@@ -208,13 +213,30 @@ class CypherAgent:
     # -- vector fallback ------------------------------------------------------------------
 
     def vector_fallback(
-        self, store: Any, question: str, *, entitlements: list[str], k: int = 5
+        self,
+        store: Any,
+        question: str,
+        *,
+        entitlements: list[str],
+        k: int = 5,
+        firm_companies: list[str] | None = None,
     ) -> CypherResult:
-        """Answer from :Chunk text via the vector index, entitlement-filtered + honestly labelled."""
+        """Answer from :Chunk text via the vector index, entitlement-filtered + honestly labelled.
+
+        `firm_companies` firm-scopes the search (see `VECTOR_CYPHER`): pass the active firm's held-
+        company names to keep cross-firm/demo chunks out; pass None for a global (unscoped) search.
+        """
         qv = self.embedder.embed([question])[0]
         try:
             chunks = _reader_run(
-                store, VECTOR_CYPHER, {"k": k, "qv": [float(x) for x in qv], "ent": entitlements}
+                store,
+                VECTOR_CYPHER,
+                {
+                    "k": k,
+                    "qv": [float(x) for x in qv],
+                    "ent": entitlements,
+                    "firm_companies": firm_companies,
+                },
             )
         except Exception:  # noqa: BLE001 - fallback must not raise
             chunks = []
@@ -225,12 +247,21 @@ class CypherAgent:
             note=FALLBACK_NOTE,
         )
 
-    def answer(self, store: Any, question: str, *, entitlements: list[str]) -> CypherResult:
-        """Graph-first; on failure, the labelled vector fallback."""
+    def answer(
+        self,
+        store: Any,
+        question: str,
+        *,
+        entitlements: list[str],
+        firm_companies: list[str] | None = None,
+    ) -> CypherResult:
+        """Graph-first; on failure, the labelled (optionally firm-scoped) vector fallback."""
         graph = self.generate_and_run(store, question)
         if graph.ok:
             return graph
-        fallback = self.vector_fallback(store, question, entitlements=entitlements)
+        fallback = self.vector_fallback(
+            store, question, entitlements=entitlements, firm_companies=firm_companies
+        )
         fallback.attempts = graph.attempts
         fallback.provider_error = graph.provider_error
         return fallback

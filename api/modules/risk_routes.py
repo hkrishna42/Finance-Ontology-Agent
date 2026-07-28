@@ -12,12 +12,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from ..config import get_settings
-from ..firms import graph_ops
-from ..firms import store as firms_store
+from ..firms import scope
 from ..providers.base import Role
 from ..providers.factory import get_llm_provider
 from ..stores.neo4j import Neo4jStore
-from ..stores.sqlite import connect, init_db
 from . import risk_lens
 
 router = APIRouter(prefix="/risk", tags=["risk"])
@@ -38,32 +36,6 @@ def _store() -> Neo4jStore:
     return Neo4jStore(get_settings())
 
 
-def _active_firm_name() -> str | None:
-    """The active firm's name from the SQLite registry, or None (no registry / none active).
-
-    Best-effort: a missing or unreadable registry degrades to an unscoped (empty) projection rather
-    than a 500 (contract §E).
-    """
-    try:
-        conn = connect(get_settings().sqlite_path)
-        try:
-            init_db(conn)
-            active = firms_store.get_active_firm(conn)
-        finally:
-            conn.close()
-    except Exception:  # no registry yet / DB-less boot → treat as "no active firm"
-        return None
-    return active["name"] if active else None
-
-
-def _resolve_funds(store: Neo4jStore, firm: str | None) -> list[str]:
-    """Funds for the requested firm (query param) or the active firm; [] when neither resolves."""
-    name = firm or _active_firm_name()
-    if not name:
-        return []
-    return graph_ops.firm_funds(store, name)
-
-
 @router.get("")
 def risk_collection(firm: str | None = Query(default=None)) -> dict[str, Any]:
     """GET /risk -> types.ts RiskData for the active firm (or `?firm=<name>`).
@@ -72,7 +44,7 @@ def risk_collection(firm: str | None = Query(default=None)) -> dict[str, Any]:
     """
     store = _store()
     try:
-        return risk_lens.risk_collection(store, _resolve_funds(store, firm))
+        return risk_lens.risk_collection(store, scope.firm_fund_names(store, firm))
     finally:
         store.close()
 
@@ -142,7 +114,7 @@ def compare(
     """
     store = _store()
     try:
-        funds = _resolve_funds(store, None)
+        funds = scope.firm_fund_names(store, None)
         a = fund_a or (funds[0] if len(funds) >= 1 else None)
         b = fund_b or (funds[1] if len(funds) >= 2 else None)
         if not a or not b:

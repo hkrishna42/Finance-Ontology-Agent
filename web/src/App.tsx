@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { getHealth, getOntologyInfo } from './api'
+import { getActiveFirm, getHealth, getOntologyInfo } from './api'
 import type { Health, OntologyInfo } from './types'
 import { useTheme } from './lib/theme'
 import { Icon } from './lib/icons'
@@ -44,6 +44,11 @@ export default function App() {
   const [focus, setFocus] = useState<NavTarget['focus']>()
   const [health, setHealth] = useState<Health | null>(null)
   const [info, setInfo] = useState<OntologyInfo | null>(null)
+  // The active firm NAME, threaded into every scoped panel so its getter sends ?firm=/firm and the
+  // server (and the fixture guard) scope to the right firm. Starts null; resolved from /firms/active
+  // on mount and set eagerly on a firm switch. Panels feed it into their useLoaded deps, so the
+  // null→name resolution re-triggers their fetch even without a remount.
+  const [activeFirm, setActiveFirm] = useState<string | null>(null)
   // Bumped whenever the active firm changes → remounts the visible panel (its useLoaded re-runs
   // against the newly-active firm, which the server scopes every panel to) and refreshes the chips.
   const [reloadKey, setReloadKey] = useState(0)
@@ -53,6 +58,7 @@ export default function App() {
   useEffect(() => {
     getHealth().then((h) => setHealth(h?.data ?? null))
     getOntologyInfo().then((i) => setInfo(i.data))
+    getActiveFirm().then((r) => setActiveFirm(r.data?.name ?? null))
   }, [reloadKey])
 
   const navigate = (t: NavTarget) => { setActive(t.panel); setFocus(t.focus) }
@@ -100,7 +106,7 @@ export default function App() {
           <span className="topbar-spacer" />
 
           <FirmSelector
-            onSelect={() => setReloadKey((k) => k + 1)}
+            onSelect={(firm) => { setActiveFirm(firm.name); setReloadKey((k) => k + 1) }}
             onAddFirm={() => setAddFirmOpen(true)}
             reloadKey={reloadKey}
           />
@@ -123,9 +129,9 @@ export default function App() {
         <main className="content">
           <div className="content-inner" key={reloadKey}>
             <Suspense fallback={<div className="loading"><span className="spinner" />Loading…</div>}>
-              {active === 'chat' && <ChatPanel onNavigate={navigate} />}
-              {active === 'graph' && <GraphExplorer focus={focus} themeKey={themeKey} />}
-              {active === 'docs' && <DocViewer focus={focus} />}
+              {active === 'chat' && <ChatPanel onNavigate={navigate} firm={activeFirm} />}
+              {active === 'graph' && <GraphExplorer focus={focus} themeKey={themeKey} firm={activeFirm} />}
+              {active === 'docs' && <DocViewer focus={focus} firm={activeFirm} />}
               {active === 'ingest' && <IngestPanel />}
               {active === 'resolve' && <ResolutionQueue />}
               {active === 'risk' && <RiskDashboard />}

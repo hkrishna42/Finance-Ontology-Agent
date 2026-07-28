@@ -25,8 +25,8 @@ function buildRanges(text: string, spans: DocSpan[]): Range[] {
   return out
 }
 
-export function DocViewer({ focus }: { focus?: NavTarget['focus'] }) {
-  const { data, source, loading } = useLoaded<DocRecord[]>(getDocuments)
+export function DocViewer({ focus, firm }: { focus?: NavTarget['focus']; firm?: string | null }) {
+  const { data, source, loading } = useLoaded<DocRecord[]>(() => getDocuments(firm ?? undefined), [firm])
   const [activeId, setActiveId] = useState<string | null>(null)
   const activeSpanRef = useRef<HTMLElement>(null)
 
@@ -68,6 +68,14 @@ export function DocViewer({ focus }: { focus?: NavTarget['focus'] }) {
       />
       {loading ? (
         <div className="loading"><span className="spinner" />Loading documents…</div>
+      ) : docs.length === 0 ? (
+        <div className="card card-pad" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-muted)' }}>
+          <Icon name="doc" size={26} />
+          <div style={{ fontWeight: 600, marginTop: 10 }}>No filings ingested for {firm ?? 'this firm'} yet — run enrichment.</div>
+          <div className="faint" style={{ fontSize: 12.5, marginTop: 6, maxWidth: 420, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
+            Once this firm's filings are ingested, each source document appears here with its grounding spans highlighted.
+          </div>
+        </div>
       ) : (
         <div className="doc-layout">
           <div className="doc-list">

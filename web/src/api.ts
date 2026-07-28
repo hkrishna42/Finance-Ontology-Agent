@@ -32,8 +32,21 @@ async function tryFetch<T>(path: string, init?: RequestInit): Promise<T | null> 
   }
 }
 
-function loaded<T>(live: T | null, fixture: T): Loaded<T> {
-  return live !== null ? { data: live, source: 'live' } : { data: fixture, source: 'fixture' }
+/** The one firm permitted to fall back to the committed demo fixtures when the API is unreachable.
+ *  Every other (real) firm must show a live/empty state instead, so a backend hiccup never resurfaces
+ *  the demo's NVIDIA/TSMC data under a firm it doesn't belong to. */
+export const DEMO_FIRM_NAME = 'Demo Investment Management'
+const isDemoFirm = (firm?: string | null): boolean => (firm ?? '') === DEMO_FIRM_NAME
+
+/** Resolve a getter result. Live always wins. Offline, `fixture` is served only for firm-agnostic
+ *  getters (no `firmGuard`) or the demo firm; a firm-scoped getter for a real firm gets the typed
+ *  `empty` value instead — tagged 'live' because it is emphatically NOT the committed demo fixture,
+ *  and SourceBadge renders anything non-'live' as the word "fixture" (which would mislead here). */
+function loaded<T>(live: T | null, fixture: T, firmGuard?: { firm?: string | null; empty: T }): Loaded<T> {
+  if (live !== null) return { data: live, source: 'live' }
+  if (!firmGuard) return { data: fixture, source: 'fixture' }
+  if (isDemoFirm(firmGuard.firm)) return { data: fixture, source: 'fixture' }
+  return { data: firmGuard.empty, source: 'live' }
 }
 
 // -- Health / ontology ------------------------------------------------------------------------
@@ -49,8 +62,12 @@ export async function getOntologyInfo(): Promise<Loaded<OntologyInfo>> {
 
 // -- Graph ------------------------------------------------------------------------------------
 
-export async function getGraph(): Promise<Loaded<GraphData>> {
-  return loaded(await tryFetch<GraphData>('/graph'), graphFx as unknown as GraphData)
+const EMPTY_GRAPH: GraphData = { nodes: [], edges: [], paths: [] }
+
+export async function getGraph(firm?: string): Promise<Loaded<GraphData>> {
+  const qs = firm ? `?firm=${encodeURIComponent(firm)}` : ''
+  const live = await tryFetch<GraphData>(`/graph${qs}`)
+  return loaded(live, graphFx as unknown as GraphData, { firm, empty: EMPTY_GRAPH })
 }
 
 // -- Query ------------------------------------------------------------------------------------
@@ -76,17 +93,38 @@ function pickFixtureQuery(question: string, mode: QueryMode): QueryResponse {
   return { ...base, question: question || base.question, mode }
 }
 
+/** A neutral, demo-free answer for a real firm when the API is unreachable — so an offline hiccup
+ *  never resurfaces the demo's NVIDIA fixture answer under a firm it doesn't belong to. When the API
+ *  IS reachable it returns the backend's own structural answer (empty citations) for filing-less firms. */
+function offlineQueryResponse(question: string, mode: QueryMode, firm?: string): QueryResponse {
+  return {
+    question,
+    mode,
+    answer: `The analyst API is offline, so no firm-scoped answer is available for ${firm ?? 'this firm'} right now. Reconnect to ask a grounded, cited question.`,
+    citations: [],
+    graph_paths: [],
+    plan: { strategy: 'offline — no fixture for this firm', steps: [] },
+    withheld_count: 0,
+  }
+}
+
 export async function runQuery(
   question: string,
   mode: QueryMode,
   entitlementWall: boolean,
+  firm?: string,
 ): Promise<Loaded<QueryResponse>> {
   const live = await tryFetch<QueryResponse>('/query', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, mode, entitlement_wall: entitlementWall }),
+    // `firm` is dropped from the JSON when undefined, so the server falls back to its active firm.
+    body: JSON.stringify({ question, mode, entitlement_wall: entitlementWall, firm }),
   })
   if (live) return { data: live, source: 'live' }
+
+  // Guard the fixture fallback: only the demo firm may fall back to the committed NVIDIA fixtures.
+  // A real firm gets a neutral offline placeholder (tagged 'live') — never the demo answer.
+  if (!isDemoFirm(firm)) return { data: offlineQueryResponse(question, mode, firm), source: 'live' }
 
   // Fixture fallback: when the wall is OFF, the withheld internal source is folded back in.
   const fx = pickFixtureQuery(question, mode)
@@ -108,8 +146,10 @@ export async function runQuery(
 
 // -- Documents --------------------------------------------------------------------------------
 
-export async function getDocuments(): Promise<Loaded<DocRecord[]>> {
-  return loaded(await tryFetch<DocRecord[]>('/documents'), documentsFx as unknown as DocRecord[])
+export async function getDocuments(firm?: string): Promise<Loaded<DocRecord[]>> {
+  const qs = firm ? `?firm=${encodeURIComponent(firm)}` : ''
+  const live = await tryFetch<DocRecord[]>(`/documents${qs}`)
+  return loaded(live, documentsFx as unknown as DocRecord[], { firm, empty: [] as DocRecord[] })
 }
 
 // -- Resolution queue -------------------------------------------------------------------------

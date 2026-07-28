@@ -20,8 +20,8 @@ function themeColors() {
   }
 }
 
-export function GraphExplorer({ focus, themeKey }: { focus?: NavTarget['focus']; themeKey: string }) {
-  const { data, source, loading } = useLoaded<GraphData>(getGraph)
+export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['focus']; themeKey: string; firm?: string | null }) {
+  const { data, source, loading } = useLoaded<GraphData>(() => getGraph(firm ?? undefined), [firm])
   const boxRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   const [minConf, setMinConf] = useState(0)
@@ -159,7 +159,16 @@ export function GraphExplorer({ focus, themeKey }: { focus?: NavTarget['focus'];
         <div className="graph-canvas">
           <div ref={boxRef} style={{ width: '100%', height: '100%' }} />
           {loading && <div className="loading" style={{ position: 'absolute', inset: 0 }}><span className="spinner" />Loading graph…</div>}
-          <div className="graph-hint">scroll to zoom · drag to pan · drag nodes to reposition</div>
+          {!loading && (data?.nodes.length ?? 0) === 0 && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+              <Icon name="graph" size={22} />
+              <div style={{ fontWeight: 600 }}>No subgraph for {firm ?? 'this firm'} yet</div>
+              <div className="faint" style={{ fontSize: 12, maxWidth: 340, lineHeight: 1.5 }}>
+                This firm's funds and holdings appear here once its graph is populated — run enrichment to add filing-derived nodes and edges.
+              </div>
+            </div>
+          )}
+          {(data?.nodes.length ?? 0) > 0 && <div className="graph-hint">scroll to zoom · drag to pan · drag nodes to reposition</div>}
         </div>
 
         <div className="graph-side">

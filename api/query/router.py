@@ -67,8 +67,15 @@ class RouterPlan:
         }
 
 
-def load_graph_vocab(store: Any) -> Vocab:
-    """Build the entity vocabulary from the live graph (company names/tickers + fund names)."""
+def load_graph_vocab(store: Any, firm: str | None = None) -> Vocab:
+    """Build the entity vocabulary from the live graph (company names/tickers + fund names).
+
+    When `firm` is set, the FUND list is scoped to that firm's funds (so fund detection / the
+    default-fund fallback for fund-scoped tools like concentration_summary can never pick another
+    firm's fund). Company aliases stay global on purpose: a question may reference a non-held
+    supplier/chokepoint (e.g. for an exposure path), and downstream firm-scoping of evidence and
+    analytics already prevents any other-firm data from reaching the answer.
+    """
     companies: dict[str, str] = {}
     for r in store.run("MATCH (c:Company) RETURN c.name AS name, c.ticker AS ticker"):
         name = r["name"]
@@ -77,7 +84,14 @@ def load_graph_vocab(store: Any) -> Vocab:
         companies[name.lower()] = name
         if r.get("ticker"):
             companies[str(r["ticker"]).lower()] = name
-    funds = [r["name"] for r in store.run("MATCH (f:Fund) RETURN f.name AS name") if r["name"]]
+    if firm is None:
+        fund_rows = store.run("MATCH (f:Fund) RETURN f.name AS name")
+    else:
+        fund_rows = store.run(
+            "MATCH (f:Fund)-[:MANAGED_BY]->(:Company {name: $firm}) RETURN f.name AS name",
+            firm=firm,
+        )
+    funds = [r["name"] for r in fund_rows if r["name"]]
     return Vocab(companies=companies, funds=funds)
 
 

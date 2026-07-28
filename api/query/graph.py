@@ -21,6 +21,14 @@ from .cypher_agent import CypherAgent, CypherResult
 from .router import Router, RouterPlan, Vocab, load_graph_vocab
 from .synth import Synthesizer, gather_evidence_chunks
 
+# Structural read for the "onboarded firm, no ingested filings" fallback: the firm's funds
+# (MANAGED_BY) and their holdings (HOLDS) with per-position weights. Strictly read-only.
+STRUCTURAL_HOLDINGS_CYPHER = (
+    "MATCH (f:Fund)-[:MANAGED_BY]->(:Company {name: $firm}) "
+    "OPTIONAL MATCH (f)-[h:HOLDS]->(co:Company) "
+    "RETURN f.name AS fund, co.name AS company, h.weight_pct AS weight"
+)
+
 
 @dataclass
 class QueryAnswer:
@@ -31,11 +39,12 @@ class QueryAnswer:
     graph_paths: list[dict[str, Any]]
     plan: dict[str, Any]  # {strategy, steps[]}
     withheld_count: int
-    source: str  # analytics | graph | text_vector  (extra; UI ignores)
+    source: str  # analytics | graph | text_vector | structural  (extra; UI ignores)
     cypher: str | None = None
     vector_fragments: list[dict[str, Any]] | None = None
     vector_answer: str | None = None
     narration_unavailable: str | None = None
+    firm: str | None = None  # the active/scoped firm this answer reflects (echoed for the UI)
 
     def as_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -48,6 +57,8 @@ class QueryAnswer:
             "withheld_count": self.withheld_count,
             "source": self.source,
         }
+        if self.firm is not None:
+            d["firm"] = self.firm
         if self.cypher is not None:
             d["cypher"] = self.cypher
         if self.mode == "side_by_side":
@@ -299,16 +310,132 @@ class QueryGraph:
     # -- evidence -------------------------------------------------------------------------
 
     def _run_graph_first(
-        self, question: str, plan: RouterPlan, *, allow_fallback: bool
+        self,
+        question: str,
+        plan: RouterPlan,
+        *,
+        allow_fallback: bool,
+        firm_companies: list[str] | None = None,
     ) -> tuple[A.AnalyticsResult | None, CypherResult | None, str]:
         if plan.tool is not None:
             fn = A.TOOLS[plan.tool]
             return fn(self.store, **plan.tool_args), None, "analytics"
         if allow_fallback:
-            cres = self.cypher_agent.answer(self.store, question, entitlements=plan.entitlements)
+            cres = self.cypher_agent.answer(
+                self.store, question, entitlements=plan.entitlements, firm_companies=firm_companies
+            )
         else:
             cres = self.cypher_agent.generate_and_run(self.store, question)
         return None, cres, cres.source
+
+    # -- firm scoping ---------------------------------------------------------------------
+
+    @staticmethod
+    def _analytics_in_firm(
+        analytics: A.AnalyticsResult, firm_companies: list[str] | None
+    ) -> bool:
+        """True if an analytics result pertains to the active firm.
+
+        The fund-optional analytics tools run cross-firm when no fund is named (`$fund IS NULL`), so
+        with a non-demo firm active a fund-agnostic question can surface the demo's rows. When a firm
+        scope is set we keep an analytics result only if its entities intersect the firm's held
+        companies; a disjoint result is pure cross-firm bleed and is dropped (→ structural fallback).
+        """
+        if firm_companies is None:  # no active firm → never restrict (today's behaviour)
+            return True
+        entities = _analytics_entities(analytics)
+        if not entities:
+            # Fund-scoped tools (e.g. concentration_summary) expose no cross-firm entities; their
+            # fund is chosen from the firm-scoped vocab, so the result already pertains to the firm.
+            return True
+        return bool(set(entities) & set(firm_companies))
+
+    @staticmethod
+    def _no_grounded_evidence(
+        analytics: A.AnalyticsResult | None,
+        cres: CypherResult | None,
+        chunks: list[dict[str, Any]],
+    ) -> bool:
+        """No graph/analytics rows and no visible or vector chunks → nothing to ground an answer on."""
+        if analytics is not None and analytics.rows:
+            return False
+        if cres is not None and cres.source == "graph" and cres.ok and cres.rows:
+            return False
+        if chunks:
+            return False
+        if cres is not None and cres.chunks:
+            return False
+        return True
+
+    _FIRM_HAS_CHUNKS_CYPHER = (
+        "MATCH (c:Chunk) "
+        "WHERE EXISTS { MATCH (c)-[:MENTIONS]->(x) WHERE x.name IN $firm_companies } "
+        "RETURN count(c) AS n"
+    )
+
+    def _firm_has_chunks(self, firm_companies: list[str] | None) -> bool:
+        """Does the firm have ANY :Chunk mentioning one of its held companies (i.e. ingested filings)?
+
+        Gates the structural fallback: it must fire only for a firm with NO filings at all — never for
+        a firm that HAS filings but where THIS question happened to retrieve none (that would wrongly
+        claim "no ingested filings", e.g. for the demo firm). On any read error, assume filings exist
+        so we never emit a false "no filings" answer.
+        """
+        try:
+            rows = self.store.run(self._FIRM_HAS_CHUNKS_CYPHER, firm_companies=firm_companies or [])
+        except Exception:  # noqa: BLE001 - never claim "no filings" on a read hiccup
+            return True
+        return bool(rows) and (rows[0].get("n") or 0) > 0
+
+    def _structural_answer(self, question: str, firm: str, ui_mode: str) -> QueryAnswer:
+        """Deterministic, filing-free answer for an onboarded firm with no ingested :Chunk evidence.
+
+        Built ONLY from the firm's own funds/holdings in the graph — never the demo vector index — so
+        it can never leak demo citations. Returns empty citations and a distinct `structural` source.
+        """
+        try:
+            rows = self.store.run(STRUCTURAL_HOLDINGS_CYPHER, firm=firm)
+        except Exception:  # noqa: BLE001 - structural read must not raise
+            rows = []
+        funds = {r["fund"] for r in rows if r.get("fund")}
+        companies = {r["company"] for r in rows if r.get("company")}
+        # Top holdings by weight: the largest single-fund position per company.
+        weights: dict[str, float] = {}
+        for r in rows:
+            co = r.get("company")
+            if not co:
+                continue
+            w = float(r.get("weight") or 0.0)
+            if w > weights.get(co, float("-inf")):
+                weights[co] = w
+        top = sorted(weights.items(), key=lambda kv: kv[1], reverse=True)[:5]
+        top5 = ", ".join(f"{name} ({w:.1f}%)" for name, w in top) if top else "none"
+        answer = (
+            f"{firm} manages {len(funds)} fund(s) and holds {len(companies)} position(s). "
+            f"Top holdings by weight: {top5}. "
+            "No ingested filings for this firm yet — run enrichment for filing-grounded answers."
+        )
+        return QueryAnswer(
+            question=question,
+            mode=ui_mode,
+            answer=answer,
+            citations=[],
+            graph_paths=[],
+            plan={
+                "strategy": "structural graph (no ingested filings)",
+                "steps": [
+                    "Read the firm's funds (MANAGED_BY) and holdings (HOLDS) from the graph",
+                    "Summarize fund count, position count, and top holdings by weight",
+                    "No :Chunk evidence for this firm yet — the vector/text path is skipped",
+                ],
+            },
+            withheld_count=0,
+            source="structural",
+            cypher=STRUCTURAL_HOLDINGS_CYPHER,
+            vector_fragments=[] if ui_mode == "side_by_side" else None,
+            vector_answer="" if ui_mode == "side_by_side" else None,
+            firm=firm,
+        )
 
     # -- public API -----------------------------------------------------------------------
 
@@ -318,15 +445,34 @@ class QueryGraph:
         *,
         entitlements: list[str] | None = None,
         mode: str = "graph",
+        firm: str | None = None,
+        firm_companies: list[str] | None = None,
     ) -> QueryAnswer:
+        """Answer `question`, reflecting the active `firm` when one is set.
+
+        When `firm` is None the pipeline behaves exactly as before (global). When a firm is active,
+        the text paths are scoped to `firm_companies` (its held companies) so cross-firm/demo chunks
+        never appear, and a firm with no qualifying chunks gets a deterministic structural answer
+        instead of the (demo-only) global vector fallback.
+        """
         ui_mode = "side_by_side" if mode == "side_by_side" else "graph"
         allow_fallback = mode != "graph_only"
-        plan = self.router.route(question, entitlements=entitlements, vocab=self.vocab())
+        # Firm-scope the vocab (funds) when a firm is active and none was injected, so fund-scoped
+        # tools resolve the firm's own funds. Injected vocab (tests) and the no-firm case are global.
+        if self._vocab is not None:
+            vocab = self._vocab
+        elif firm is not None:
+            vocab = load_graph_vocab(self.store, firm=firm)
+        else:
+            vocab = self.vocab()
+        plan = self.router.route(question, entitlements=entitlements, vocab=vocab)
 
         if mode == "vector_only":
             vcres = self.cypher_agent.vector_fallback(
-                self.store, question, entitlements=plan.entitlements
+                self.store, question, entitlements=plan.entitlements, firm_companies=firm_companies
             )
+            if firm is not None and not vcres.chunks and not self._firm_has_chunks(firm_companies):
+                return self._structural_answer(question, firm, ui_mode)
             out = self.synth.synthesize(question, plan_fund=plan.fund, cres=vcres)
             return QueryAnswer(
                 question=question,
@@ -339,17 +485,46 @@ class QueryGraph:
                 source="text_vector",
                 cypher=None,
                 narration_unavailable=out.get("narration_unavailable"),
+                firm=firm,
             )
 
         analytics, cres, source = self._run_graph_first(
-            question, plan, allow_fallback=allow_fallback
+            question, plan, allow_fallback=allow_fallback, firm_companies=firm_companies
         )
+
+        # Drop a cross-firm analytics result (e.g. a fund=None tool spanning the demo) so it can't
+        # leak into a non-demo firm's answer; the structural fallback below then takes over.
+        if firm is not None and analytics is not None and not self._analytics_in_firm(
+            analytics, firm_companies
+        ):
+            analytics = None
 
         # Entitlement wall: gather supporting chunks for the answer's entities + count withheld.
         names = list(plan.entities)
         if analytics is not None:
             names = sorted(set(names) | set(_analytics_entities(analytics)))
-        chunks, withheld = gather_evidence_chunks(self.store, names, plan.entitlements)
+        chunks, withheld = gather_evidence_chunks(
+            self.store, names, plan.entitlements, firm_companies=firm_companies
+        )
+
+        # Structural fallback: an active firm with NO ingested filings whose question also produced no
+        # grounded evidence. Do NOT run the global vector search — answer deterministically from the
+        # firm's own graph. Gated on `_firm_has_chunks` so a firm that HAS filings (e.g. the demo) but
+        # simply matched nothing for THIS question never gets a false "no ingested filings" answer.
+        if (
+            firm is not None
+            and self._no_grounded_evidence(analytics, cres, chunks)
+            and not self._firm_has_chunks(firm_companies)
+        ):
+            return self._structural_answer(question, firm, ui_mode)
+
+        # `source` must reflect the evidence actually used (analytics may have been firm-filtered out).
+        if analytics is not None:
+            source = "analytics"
+        elif cres is not None:
+            source = cres.source
+        else:
+            source = "text_vector"
 
         out = self.synth.synthesize(
             question,
@@ -386,7 +561,8 @@ class QueryGraph:
                 vres = cres
             else:
                 vres = self.cypher_agent.vector_fallback(
-                    self.store, question, entitlements=plan.entitlements
+                    self.store, question, entitlements=plan.entitlements,
+                    firm_companies=firm_companies,
                 )
             vector_fragments = _vector_fragments(vres.chunks)
             vector_answer = _vector_answer(vres.chunks)
@@ -404,4 +580,5 @@ class QueryGraph:
             vector_fragments=vector_fragments,
             vector_answer=vector_answer,
             narration_unavailable=narration,
+            firm=firm,
         )
