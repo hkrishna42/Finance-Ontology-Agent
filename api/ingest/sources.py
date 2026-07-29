@@ -102,6 +102,31 @@ def _looks_like_html(text: str) -> bool:
     return "<html" in head or "<!doctype html" in head or "<body" in head or "<div" in head
 
 
+def _pdf_to_text(data: bytes) -> str:
+    """Extract a born-digital PDF's text layer with pypdf (no OCR). Scanned PDFs yield ''.
+
+    Agent A (Retriever): the lightweight default. Scanned / image-only PDFs (no text layer) return
+    empty and the caller raises, pointing at the opt-in `ingest-tables` OCR extra (docling).
+    """
+    import io
+
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:  # pragma: no cover - pypdf is a base dependency
+        raise IngestSourceError("PDF ingest needs pypdf") from exc
+    try:
+        reader = PdfReader(io.BytesIO(data))
+    except Exception as exc:  # noqa: BLE001 - a corrupt PDF is a clean 400, not a 500
+        raise IngestSourceError(f"could not read PDF: {str(exc)[:120]}") from exc
+    parts: list[str] = []
+    for page in reader.pages:
+        try:
+            parts.append(page.extract_text() or "")
+        except Exception:  # noqa: BLE001 - skip an unparseable page, keep the rest
+            continue
+    return _collapse("\n\n".join(p for p in parts if p.strip()))
+
+
 # --- deterministic classification ----------------------------------------------------------
 
 _FORM_LABELS = (
@@ -214,13 +239,20 @@ def source_from_bytes(
     sensitivity: str | None = None,
     title: str | None = None,
 ) -> SourceDoc:
-    """Normalize an uploaded file's bytes. HTML-first by extension or sniffed content."""
-    raw = data.decode("utf-8", errors="replace")
+    """Normalize an uploaded file's bytes. PDF (born-digital text) → HTML → plain text."""
     name = filename or "upload"
-    is_html = name.lower().endswith((".html", ".htm")) or _looks_like_html(raw)
-    body = strip_html(raw) if is_html else _collapse(raw)
-    if not body.strip():
-        raise IngestSourceError(f"no extractable text in {name}")
+    if name.lower().endswith(".pdf") or data[:5] == b"%PDF-":
+        body = _pdf_to_text(data)
+        if not body.strip():
+            raise IngestSourceError(
+                f"no extractable text layer in {name}; scanned PDFs need the ingest-tables OCR extra"
+            )
+    else:
+        raw = data.decode("utf-8", errors="replace")
+        is_html = name.lower().endswith((".html", ".htm")) or _looks_like_html(raw)
+        body = strip_html(raw) if is_html else _collapse(raw)
+        if not body.strip():
+            raise IngestSourceError(f"no extractable text in {name}")
     stem = Path(name).stem or "document"
     return _finalize(
         text=body,
