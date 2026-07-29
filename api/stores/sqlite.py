@@ -70,10 +70,18 @@ CREATE TABLE IF NOT EXISTS firms (
 
 
 def connect(path: str = ":memory:") -> sqlite3.Connection:
-    """Open a connection, ensure the parent dir exists, and enable dict-like row access."""
+    """Open a connection, ensure the parent dir exists, and enable dict-like row access.
+
+    `check_same_thread=False`: FastAPI runs sync routes and their generator-dependency setup/teardown
+    on anyio's threadpool, which can create a per-request connection on one thread and close it on
+    another. SQLite's default same-thread guard turns that into a 500 under any concurrent load — e.g.
+    the UI firing `GET /firms` + `GET /firms/active` together made the whole firm selector go
+    "offline". Each request still gets its OWN connection used serially (never shared across threads
+    simultaneously), so relaxing the guard is safe.
+    """
     if path != ":memory:":
         Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
