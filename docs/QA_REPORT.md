@@ -150,3 +150,34 @@ requests now 200 (was 40/40 → 500); the firm selector loads and switches firms
 
 _All three phases (A firm-scope reads · B auto-enrich · C firm-scoped impact) are complete and
 verified; the offline gate (`make ci`) is green and the private-firm-name scrub guardrail is clean._
+
+---
+
+# FinanceOnto program — FIBO-grounded MDM (branch `feature/financeonto-mdm`)
+
+A separate, larger program (approved plan `~/.claude/plans/let-s-continue-with-the-iridescent-tower.md`):
+evolve the platform toward the client "FinanceOnto" mockup — FIBO OWL grounding, a simulated internal
+lakehouse, Master Data Management golden records, upload→graph with dedup, an interactive graph, and a
+responsive UI. Built with **neutral/fictional data only** (the private-firm-name guardrail stays clean). Phase 1 (the
+MDM core) is complete; Phases 2–3 remain. See `HANDOVER_NEXT_SESSION.md` for the full next-session brief.
+
+## Phase 1 — MDM core (complete; 8 commits, `make ci` green, 475 passed)
+
+| Capability | What landed | Evidence |
+|---|---|---|
+| **FIBO grounding + reasoner** (`api/fibo/`) | Vendored real FIBO/OMG-Commons OWL slice (verified IRIs + subclass + `owl:disjointWith`), `rdflib` load + `owlrl` OWL-RL reasoning, deterministic grounding, SPARQL; `/fibo/*` | `GET /fibo/classes` → 14 classes; reasoner flags a deliberate disjointness violation; genuine OWL, offline |
+| **Real-estate ontology** (`schema.py`) | Additive `EntitySpec.fibo_class` + RealProperty/Portfolio/Lease/Loan/Valuation + RE relations; `Company` → `cmns-org:LegalEntity`; `Company.norm` index | extraction JSON schema unchanged for the structural types; `neo4j_ddl` covers the new labels |
+| **Simulated lakehouse** (`api/lakehouse/`) | SQLite medallion (source systems + trust, bronze/silver/gold dims, per-attribute lineage) seeded with 4 systems + deliberately conflicting records | `GET /lakehouse/source-systems` → 4 systems (trust 95/88/86/80) |
+| **MDM golden record** (`api/mdm/`) | Matching (blocking + normalize + rapidfuzz → confidence %) + declarative attribute-survivorship engine + publish (Gold dim + lineage + canonical Neo4j node); 5-step `/mdm/*` wizard | `POST /mdm/merge {RealProperty:harborview_tower}` → **96.2%**, golden `PROP-1001`, `Lakehouse.dim_property (PK: PROP-1001)`, FIBO-grounded node written |
+| **Pipeline FIBO grounding** (Agent B) | `_entity_node_props` stamps `fibo_class`/`fibo_grounded`/`reasoning_valid` on every ingested entity | ingested Company → `cmns-org:LegalEntity`; bond-issuer role → `CorporateDebtIssuer` |
+| **Canonical-identity dedup** (`pipeline.py`) | Variant Company mentions snap onto one node by resolved CIK / normalized name (node write + MENTIONS + steward triples); `Company.key` unchanged | seed "NVIDIA" (cik 0001045810) + "NVIDIA Corporation" → one node |
+| **PDF ingest** (`sources.py`) | `pypdf` born-digital text in `source_from_bytes`; scanned → points at the opt-in OCR extra | born-digital PDF fixture extracts text through the stub pipeline |
+| **MDM wizard + upload UI** (`web/src`) | The 5-step golden-record wizard (4-agent strip, entity cards, conflicting sources + trust, matching %, survivorship table, golden record) + a real file/text upload streaming the pipeline | browser-verified at localhost:5173 → **Master Data** |
+
+## Remaining (next session)
+
+- **Resolution-queue reconcile:** `/resolve/merge` repoint Neo4j + `/resolve/reject` + `/resolve/promote`
+  routes; wire the `ResolutionQueue.tsx` buttons; thread `queue_conn` into the upload path.
+- **Phase 2 — interactive FIBO graph:** search, domain filters + legend, Force/DAG/Radial layouts +
+  zoom + minimap, rich node inspector (FIBO + lakehouse provenance), SPARQL / NL query.
+- **Phase 3 — responsive UI:** collapsible sidebar + hamburger + scrim, responsive topbar, fluid canvas.
