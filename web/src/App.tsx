@@ -135,7 +135,7 @@ export default function App() {
               {active === 'ingest' && <IngestPanel />}
               {active === 'resolve' && <ResolutionQueue />}
               {active === 'risk' && <RiskDashboard />}
-              {active === 'impact' && <ImpactFeed onNavigate={navigate} />}
+              {active === 'impact' && <ImpactFeed onNavigate={navigate} firm={activeFirm} />}
               {active === 'reports' && <ReportCenter onNavigate={navigate} />}
               {active === 'eval' && <EvalPanel />}
             </Suspense>

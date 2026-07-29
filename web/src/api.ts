@@ -166,8 +166,12 @@ export async function getRisk(): Promise<Loaded<RiskData>> {
 
 // -- Impact -----------------------------------------------------------------------------------
 
-export async function getImpact(): Promise<Loaded<ImpactBriefing[]>> {
-  return loaded(await tryFetch<ImpactBriefing[]>('/impact'), impactFx as unknown as ImpactBriefing[])
+export async function getImpact(firm?: string): Promise<Loaded<ImpactBriefing[]>> {
+  const qs = firm ? `?firm=${encodeURIComponent(firm)}` : ''
+  const live = await tryFetch<ImpactBriefing[]>('/impact' + qs)
+  // Only the demo firm may fall back to the committed NVIDIA fixture; every real firm gets an empty
+  // feed (never the demo's change briefing) whether live or offline.
+  return loaded(live, impactFx as unknown as ImpactBriefing[], { firm, empty: [] as ImpactBriefing[] })
 }
 
 // -- Reports ----------------------------------------------------------------------------------

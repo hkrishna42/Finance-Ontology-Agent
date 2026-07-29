@@ -81,15 +81,29 @@ class Resolver(Protocol):
 
 
 class Neo4jResolver:
-    """Resolver backed by a live Neo4jStore (or any object with `.run(query, **params)`)."""
+    """Resolver backed by a live Neo4jStore (or any object with `.run(query, **params)`).
 
-    def __init__(self, store: Any) -> None:
+    An optional `firm` scopes `funds_holding` to the funds that firm manages, so a change's downstream
+    fund impact never bleeds across firms (a single issuer can be held by more than one firm's funds).
+    Left `None` the resolver behaves exactly as before (all funds holding the changed companies).
+    """
+
+    def __init__(self, store: Any, firm: str | None = None) -> None:
         self.store = store
+        self.firm = firm
 
     def funds_holding(self, companies: Iterable[str]) -> list[dict]:
         names = list(dict.fromkeys(companies))
         if not names:
             return []
+        if self.firm:
+            return self.store.run(
+                "MATCH (f:Fund)-[:MANAGED_BY]->(:Company {name:$firm})\n"
+                "MATCH (f)-[h:HOLDS]->(co:Company) WHERE co.name IN $names\n"
+                "RETURN f.name AS fund, f.series_id AS series_id, co.name AS company,\n"
+                "       h.weight_pct AS weight_pct ORDER BY fund, weight_pct DESC",
+                names=names, firm=self.firm,
+            )
         return self.store.run(
             "MATCH (f:Fund)-[h:HOLDS]->(co:Company) WHERE co.name IN $names\n"
             "RETURN f.name AS fund, f.series_id AS series_id, co.name AS company,\n"

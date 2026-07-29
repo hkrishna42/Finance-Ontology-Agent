@@ -16,6 +16,8 @@ from fastapi import APIRouter, Query
 from sse_starlette.sse import EventSourceResponse
 
 from ..config import get_settings
+from ..firms import scope
+from ..firms.store import DEMO_FIRM_NAME
 from ..providers.factory import get_llm_provider
 from ..stores.neo4j import Neo4jStore
 from . import change_impact as ci
@@ -29,14 +31,27 @@ def _store() -> Neo4jStore:
 
 @router.get("")
 def impact_collection(
+    firm: str | None = Query(default=None),
     v1: str = Query(default="v1.json"),
     v2: str = Query(default="v2.json"),
 ) -> list[dict[str, Any]]:
-    """GET /impact -> types.ts ImpactBriefing[] for the committed v1->v2 fixture(s). A read; no LLM."""
-    f1, f2 = ci.load_fixture(v1), ci.load_fixture(v2)
+    """GET /impact -> types.ts ImpactBriefing[], scoped to the active firm (or ?firm=). A read; no LLM.
+
+    Only the **demo** firm (or a firm-less / demo-less install) shows the committed illustrative
+    v1->v2 fixture briefing. A real onboarded firm shows its OWN change events — currently a clean
+    empty feed ("no change events yet"), NEVER the demo's NVIDIA fixture. Firm-specific change events
+    require a re-onboard-with-newer-version flow (SUPERSEDES + a versioned fact set); until a firm has
+    one there is nothing to diff, so the feed is legitimately empty (tracked as a follow-up).
+    """
+    resolved = scope.resolve_firm(firm)
+    if resolved is not None and resolved != DEMO_FIRM_NAME:
+        return []  # a real firm's own (currently empty) change feed — never the demo fixture
     store = _store()
     try:
-        resolver = ci.Neo4jResolver(store)
+        # Demo / firm-less: the illustrative fixture, its propagation scoped to the (demo) firm so a
+        # shared issuer can never pull another firm's funds into the demo briefing.
+        resolver = ci.Neo4jResolver(store, firm=resolved)
+        f1, f2 = ci.load_fixture(v1), ci.load_fixture(v2)
         return ci.impact_briefings(f1, f2, resolver)
     finally:
         store.close()

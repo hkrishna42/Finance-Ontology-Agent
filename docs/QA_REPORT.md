@@ -25,7 +25,7 @@ citations regardless of the active firm. Onboarded firms were structural-only (h
 | **Documents** (`/documents`) | 3 demo filings for any firm | `?firm=` → the firm's docs (held-company mentions **or** `Document.firm` provenance); empty pre-enrich | VANGUARD → its **4** ingested filings (3 holdings' 10-Ks + the fund 485BPOS); demo → `nvda_10k` |
 | **Risk Dashboard** (`/risk`) | already scoped (prior phase) | unchanged; helpers de-duplicated into `firms/scope.py` | the firm's funds' concentration/HHI |
 | **Report Center** (`/reports`) | already scoped (prior phase) | unchanged | the firm's report packs |
-| **Change Impact** (`/impact`) | demo-fixture diff (NVIDIA 10-K/A) for any firm | **deferred to Phase C** (firm-specific impact) | still demo — tracked, next phase |
+| **Change Impact** (`/impact`) | demo-fixture diff (NVIDIA 10-K/A) for **any** firm | `?firm=` → only the demo shows the illustrative fixture; a real firm shows an empty "no change events yet" feed, never the demo fixture; `funds_holding` firm-filtered | demo → the NVIDIA 10-K/A briefing (● live); VANGUARD → the empty state (● live) |
 | **Resolution Queue** (`/resolve`) | global steward queue | unchanged (global by design) | n/a |
 | **Evaluation** (`/eval`) | static fixture (no backend route) | unchanged (global) | n/a |
 
@@ -109,4 +109,44 @@ Four fixes landed this session to make the enriched firm's features actually ref
 - **Name-resolution precision:** `cik_from_name` takes edgartools' top search hit; a highly ambiguous
   holding name could resolve to the wrong issuer (best-effort, non-fatal). Fine for the POC.
 
-_Phase C (firm-specific Change Impact) appends below when it lands._
+## Phase C — firm-scope Change Impact
+
+`GET /impact` loaded a committed v1→v2 **fixture** (the demo's NVIDIA 10-K/A change), diffed +
+propagated it against the live graph, and returned it for **any** active firm — the last demo leak.
+
+- **`api/modules/impact_routes.py`** — `impact_collection` gains `?firm=` and resolves the active
+  firm via `firms/scope`. Only the **demo** firm (or a firm-less install) shows the illustrative
+  fixture briefing; a real onboarded firm returns `[]` (a clean "no change events yet" feed), never
+  the demo's NVIDIA fixture.
+- **`api/modules/change_impact.py`** — `Neo4jResolver(store, firm=…)`: `funds_holding` gains a firm
+  filter (funds `MANAGED_BY` the firm), so a change's downstream fund set can't bleed across firms
+  via a shared issuer. The demo path scopes to the demo firm.
+- **Frontend** (`web/src`): `getImpact(firm)` sends `?firm=` and firm-guards the fixture fallback
+  (a real firm never falls back to the committed NVIDIA fixture); `ImpactFeed` takes the active firm
+  and renders a "No change events yet" empty state.
+
+**Verified in the browser** (stub): with **VANGUARD EXPLORER FUND** active, Change Impact shows the
+"No change events yet" empty state with a **● live** badge (the backend's `[]`, not a fixture); with
+**Demo Investment Management** active, it shows the full NVIDIA 10-K/A briefing (added `NVIDIA
+SUPPLIES_TO SK Hynix`; changed `NVIDIA EXPOSED_TO Customer concentration`; affected Demo Growth /
+Focused Growth funds at 1 hop; two 485BPOS sections stale) — also **● live**. `GET /impact?firm=…`
+confirms it at the API: demo → 1 briefing, VANGUARD / any other firm → `[]`.
+
+Firm-specific change *detection* (diffing a firm's own re-ingested filing versions) needs a
+re-onboard-with-newer-version flow that records `SUPERSEDES` + a versioned fact set — the current
+model ingests one version per firm, so real firms are legitimately empty until then (follow-up).
+
+## Concurrency fix found during Phase C QA — `/firms` 500 under load
+
+Live QA surfaced a **pre-existing** bug unrelated to firm-scoping: `GET /firms` and `/firms/active`
+returned **500** for *every* concurrent request (`sqlite3.ProgrammingError: SQLite objects created in
+a thread can only be used in that same thread`) — so the UI's firm selector, which fires both on
+load, fell back to "registry offline — selection disabled", silently breaking firm switching. Root
+cause: FastAPI runs sync routes and their SQLite generator-dependency setup/teardown across anyio
+threadpool threads, tripping SQLite's default same-thread guard. Fix: open connections with
+`check_same_thread=False` in `api/stores/sqlite.py::connect` (each request still gets its own
+connection used serially, so the guard is safe to relax). *Verified: 40/40 concurrent `/firms`
+requests now 200 (was 40/40 → 500); the firm selector loads and switches firms live.*
+
+_All three phases (A firm-scope reads · B auto-enrich · C firm-scoped impact) are complete and
+verified; the offline gate (`make ci`) is green and the private-firm-name scrub guardrail is clean._

@@ -7,8 +7,8 @@ import type { NavTarget } from '../App'
 
 const fmtDate = (s: string) => new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-export function ImpactFeed({ onNavigate }: { onNavigate: (t: NavTarget) => void }) {
-  const { data, source, loading } = useLoaded<ImpactBriefing[]>(getImpact)
+export function ImpactFeed({ onNavigate, firm }: { onNavigate: (t: NavTarget) => void; firm?: string | null }) {
+  const { data, source, loading } = useLoaded<ImpactBriefing[]>(() => getImpact(firm ?? undefined), [firm])
 
   return (
     <div>
@@ -19,6 +19,14 @@ export function ImpactFeed({ onNavigate }: { onNavigate: (t: NavTarget) => void 
       />
       {loading ? (
         <div className="loading"><span className="spinner" />Loading briefings…</div>
+      ) : (data ?? []).length === 0 ? (
+        <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 24px' }}>
+          <div className="brand-mark" style={{ width: 34, height: 34, borderRadius: 9, margin: '0 auto 12px', background: 'linear-gradient(135deg,#e8590c,#f08c00)' }}><Icon name="impact" size={18} /></div>
+          <strong style={{ fontSize: 14 }}>No change events yet</strong>
+          <p className="faint" style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 440, margin: '8px auto 0' }}>
+            Change Impact tracks versioned filing changes for the active firm. When a firm's filing is re-ingested at a newer version, the propagation engine surfaces the downstream funds affected and the disclosure sections rendered stale — every hop cited.
+          </p>
+        </div>
       ) : (
         <div className="stack">
           {(data ?? []).map((b) => (
