@@ -31,6 +31,7 @@ from .firms import store as firms_store
 from .firms.routes import router as firms_router
 from .graph_view import router as graph_router
 from .ingest.routes import router as ingest_router
+from .lakehouse.routes import router as lakehouse_router
 
 # Application module routers (M5–M7). The graph/query routers (M2–M3) are wired the same way
 # when that workstream merges.
@@ -110,6 +111,7 @@ app.include_router(ingest_router)
 app.include_router(firms_router)
 app.include_router(onboarding_router)
 app.include_router(fibo_router)
+app.include_router(lakehouse_router)
 
 
 @app.get("/health")

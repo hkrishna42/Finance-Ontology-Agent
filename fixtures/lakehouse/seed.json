@@ -1,0 +1,36 @@
+{
+  "_note": "Neutral, fictional real-estate master-data seed for the MDM / lakehouse demo. Deliberately CONFLICTING representations of the same real-world entity across 4 source systems (different names, ids, addresses, types) so the golden-record survivorship story is visible. No real firm/entity names.",
+  "source_systems": [
+    {"system_id": "curated_gold", "name": "Curated Gold Layer", "layer": "gold", "trust_score": 95, "description": "Governed dim_ tables in the enterprise lakehouse (system of record for canonical business names)."},
+    {"system_id": "pms", "name": "Property Management System", "layer": "operational", "trust_score": 88, "description": "Operational property master."},
+    {"system_id": "valuation_pdf", "name": "Valuation Vendor Report (PDF)", "layer": "unstructured", "trust_score": 86, "description": "Unstructured third-party valuation report, entity-extracted."},
+    {"system_id": "loan_servicing", "name": "Loan Servicing Platform", "layer": "operational", "trust_score": 80, "description": "Debt / loan servicing system of record (most complete verified addresses)."}
+  ],
+  "bronze_records": [
+    {"record_id": "curated_gold:harborview", "system_id": "curated_gold", "entity_type": "RealProperty", "master_key": "harborview_tower", "natural_key": "PROP-1001",
+     "attributes": {"property_name": "Harborview Tower", "property_id": "PROP-1001", "address": "40 Harbourside Walk, London SE1", "property_type": "Office", "rentable_area": "412,000 sq ft"}},
+    {"record_id": "pms:harborview", "system_id": "pms", "entity_type": "RealProperty", "master_key": "harborview_tower", "natural_key": "HVT-001",
+     "attributes": {"property_name": "Harborview Twr", "property_id": "HVT-001", "address": "40 Harbourside Walk, London", "property_type": "Commercial Office", "rentable_area": "411,860 sq ft"}},
+    {"record_id": "valuation_pdf:harborview", "system_id": "valuation_pdf", "entity_type": "RealProperty", "master_key": "harborview_tower", "natural_key": null,
+     "attributes": {"property_name": "Harborview Tower", "property_id": "Not Stated", "address": "40 Harbourside Walk, South Bank, London", "property_type": "Class A Office"}},
+    {"record_id": "loan_servicing:harborview", "system_id": "loan_servicing", "entity_type": "RealProperty", "master_key": "harborview_tower", "natural_key": "PROP1001",
+     "attributes": {"property_name": "Harborview Office TWR", "property_id": "PROP1001", "address": "40 Harbourside Walk, London SE1 2AA, United Kingdom", "property_type": "Office Collateral"}},
+
+    {"record_id": "curated_gold:meridian_mgr", "system_id": "curated_gold", "entity_type": "Company", "master_key": "meridian_investments", "natural_key": "LE-2001",
+     "attributes": {"legal_name": "Meridian Investments LLC", "entity_id": "LE-2001", "lei": "5493001MERIDIAN00001X", "jurisdiction": "US-DE", "role": "investment manager"}},
+    {"record_id": "pms:meridian_mgr", "system_id": "pms", "entity_type": "Company", "master_key": "meridian_investments", "natural_key": "MER-INV",
+     "attributes": {"legal_name": "Meridian Investments, LLC", "entity_id": "MER-INV", "lei": null, "jurisdiction": "Delaware", "role": "manager"}},
+    {"record_id": "loan_servicing:meridian_mgr", "system_id": "loan_servicing", "entity_type": "Company", "master_key": "meridian_investments", "natural_key": "2001",
+     "attributes": {"legal_name": "Meridian Invmts LLC", "entity_id": "2001", "lei": "5493001MERIDIAN00001X", "jurisdiction": "US", "role": "counterparty"}},
+
+    {"record_id": "curated_gold:atlantic_issuer", "system_id": "curated_gold", "entity_type": "Company", "master_key": "atlantic_credit", "natural_key": "LE-3001",
+     "attributes": {"legal_name": "Atlantic Credit Company LLC", "entity_id": "LE-3001", "lei": "5493002ATLANTIC0002Y", "jurisdiction": "US-DE", "role": "bond issuer"}},
+    {"record_id": "loan_servicing:atlantic_issuer", "system_id": "loan_servicing", "entity_type": "Company", "master_key": "atlantic_credit", "natural_key": "ATL-CRD",
+     "attributes": {"legal_name": "Atlantic Credit Co LLC", "entity_id": "ATL-CRD", "lei": "5493002ATLANTIC0002Y", "jurisdiction": "US", "role": "debt issuer"}},
+
+    {"record_id": "curated_gold:mcref", "system_id": "curated_gold", "entity_type": "Fund", "master_key": "meridian_core_re_fund", "natural_key": "FUND-RE-CORE-01",
+     "attributes": {"fund_name": "Meridian Core Real Estate Fund", "fund_id": "FUND-RE-CORE-01", "base_currency": "USD", "strategy": "Core / Core Plus", "inception_date": "2018-01-01"}},
+    {"record_id": "pms:mcref", "system_id": "pms", "entity_type": "Fund", "master_key": "meridian_core_re_fund", "natural_key": "MCREF",
+     "attributes": {"fund_name": "Meridian Core RE Fund", "fund_id": "MCREF", "base_currency": "USD", "strategy": "Core"}}
+  ]
+}
