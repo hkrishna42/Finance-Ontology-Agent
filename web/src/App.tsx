@@ -8,6 +8,7 @@ import { ChatPanel } from './components/ChatPanel'
 import { DocViewer } from './components/DocViewer'
 import { IngestPanel } from './components/IngestPanel'
 import { ResolutionQueue } from './components/ResolutionQueue'
+import { MasterDataManagement } from './components/MasterDataManagement'
 import { ImpactFeed } from './components/ImpactFeed'
 import { ReportCenter } from './components/ReportCenter'
 import { EvalPanel } from './components/EvalPanel'
@@ -18,7 +19,7 @@ import { AddFirmModal } from './components/AddFirmModal'
 const GraphExplorer = lazy(() => import('./components/GraphExplorer').then((m) => ({ default: m.GraphExplorer })))
 const RiskDashboard = lazy(() => import('./components/RiskDashboard').then((m) => ({ default: m.RiskDashboard })))
 
-export type PanelId = 'chat' | 'graph' | 'docs' | 'ingest' | 'resolve' | 'risk' | 'impact' | 'reports' | 'eval'
+export type PanelId = 'chat' | 'graph' | 'docs' | 'ingest' | 'resolve' | 'mdm' | 'risk' | 'impact' | 'reports' | 'eval'
 export interface NavTarget {
   panel: PanelId
   focus?: { doc_id?: string; chunk_id?: string; node_id?: string }
@@ -31,6 +32,7 @@ const NAV: NavDef[] = [
   { id: 'docs', label: 'Documents', icon: 'doc', section: 'Ask & Explore' },
   { id: 'ingest', label: 'Ingest Pipeline', icon: 'ingest', section: 'Pipeline' },
   { id: 'resolve', label: 'Resolution Queue', icon: 'resolve', section: 'Pipeline' },
+  { id: 'mdm', label: 'Master Data', icon: 'merge', section: 'Pipeline' },
   { id: 'risk', label: 'Risk Dashboard', icon: 'risk', section: 'Analytics' },
   { id: 'impact', label: 'Change Impact', icon: 'impact', section: 'Analytics' },
   { id: 'reports', label: 'Report Center', icon: 'report', section: 'Analytics' },
@@ -134,6 +136,7 @@ export default function App() {
               {active === 'docs' && <DocViewer focus={focus} firm={activeFirm} />}
               {active === 'ingest' && <IngestPanel />}
               {active === 'resolve' && <ResolutionQueue />}
+              {active === 'mdm' && <MasterDataManagement />}
               {active === 'risk' && <RiskDashboard />}
               {active === 'impact' && <ImpactFeed onNavigate={navigate} firm={activeFirm} />}
               {active === 'reports' && <ReportCenter onNavigate={navigate} />}

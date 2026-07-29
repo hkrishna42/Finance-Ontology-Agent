@@ -406,3 +406,68 @@ export interface OnboardPick {
    *  or false → structural onboarding only. */
   enrich?: boolean
 }
+
+// -- MDM (Master Data Management) — the golden-record wizard contract ------------------------
+
+export interface MdmEntity {
+  entity_id: string
+  entity_type: string
+  master_key: string
+  display_name: string
+  n_sources: number
+  n_attributes: number
+  fibo_curie: string | null
+  fibo_class: string | null
+}
+
+export interface MdmSource {
+  system: string
+  system_name: string
+  layer: string | null
+  trust: number | null
+  natural_key: string | null
+  values: Record<string, string | null>
+}
+
+export interface MdmSources {
+  entity_id: string
+  entity_type: string
+  name_field: string
+  sources: MdmSource[]
+}
+
+export interface MdmMatch {
+  confidence: number
+  confidence_pct: number
+  threshold: number
+  resolved: boolean
+  matched_record_ids: string[]
+  blocking_keys: string[]
+  method: string
+}
+
+export interface SurvivorshipDecision {
+  attribute: string
+  rule: string
+  winning_source: string
+  winning_value: string | number | null
+  rationale: string
+}
+
+export interface GoldenRecord {
+  entity_type: string
+  dim_table: string
+  pk: string
+  lakehouse_provenance: string
+  canonical_attributes: Record<string, string | number | null>
+  retained_alternate_ids: Record<string, string[]>
+  fibo_class: string | null
+  fibo_curie: string | null
+  per_attribute: SurvivorshipDecision[]
+}
+
+export interface MdmMergeResult {
+  match: MdmMatch
+  golden_record: GoldenRecord
+  published: boolean
+}

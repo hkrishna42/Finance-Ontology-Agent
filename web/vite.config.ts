@@ -23,6 +23,10 @@ export default defineConfig({
       '/resolve': { target: API_TARGET, changeOrigin: true },
       '/graph': { target: API_TARGET, changeOrigin: true },
       '/documents': { target: API_TARGET, changeOrigin: true },
+      // FinanceOnto: FIBO grounding + reasoner, MDM golden-record wizard, simulated lakehouse.
+      '/fibo': { target: API_TARGET, changeOrigin: true },
+      '/mdm': { target: API_TARGET, changeOrigin: true },
+      '/lakehouse': { target: API_TARGET, changeOrigin: true },
     },
   },
 })

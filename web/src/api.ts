@@ -5,6 +5,7 @@
 import type {
   DocRecord, Firm, FirmCandidate, GraphData, Health, ImpactBriefing, OntologyInfo, OnboardPick,
   ProvisionalEntity, QueryMode, QueryResponse, ReportPack, RiskData, EvalCard, SSEEvent,
+  MdmEntity, MdmSources, MdmMatch, MdmMergeResult,
 } from './types'
 
 import ontologyFx from './fixtures/ontology.json'
@@ -304,6 +305,53 @@ function parseSSEFrame(frame: string): SSEEvent | null {
   } catch {
     return null
   }
+}
+
+// -- Upload (real document ingestion) --------------------------------------------------------
+
+export type UploadInput =
+  | { file: File }
+  | { text: string }
+  | { edgar: { ticker?: string; form?: string; accession?: string } }
+
+/** Upload a document (file / pasted text / EDGAR ref) to /ingest/documents and stream the pipeline
+ *  SSE via the shared streamSSE. Runs the SAME extract → FIBO-ground → dedup → write pipeline as
+ *  firm onboarding, so an uploaded doc becomes part of the graph. Rejects if the request won't open. */
+export async function uploadDocument(input: UploadInput, onEvent: (ev: SSEEvent) => void): Promise<void> {
+  let init: RequestInit
+  if ('file' in input) {
+    const fd = new FormData()
+    fd.append('file', input.file)
+    init = { method: 'POST', body: fd }
+  } else {
+    init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }
+  }
+  const r = await fetch('/ingest/documents', init)
+  if (!r.ok || !r.body) throw new Error(`upload failed (${r.status})`)
+  await streamSSE(r.body, onEvent)
+}
+
+// -- MDM (Master Data Management) — the golden-record wizard. No fixtures: live data or empty. -----
+
+async function postJson<T>(path: string, body: unknown): Promise<T | null> {
+  return tryFetch<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function getMdmEntities(): Promise<MdmEntity[]> {
+  return (await tryFetch<{ entities: MdmEntity[] }>('/mdm/entities'))?.entities ?? []
+}
+export async function getMdmSources(entityId: string): Promise<MdmSources | null> {
+  return tryFetch<MdmSources>(`/mdm/entities/${encodeURIComponent(entityId)}/sources`)
+}
+export async function postMdmMatch(entityId: string): Promise<MdmMatch | null> {
+  return postJson<MdmMatch>('/mdm/match', { entity_id: entityId })
+}
+export async function postMdmMerge(entityId: string): Promise<MdmMergeResult | null> {
+  return postJson<MdmMergeResult>('/mdm/merge', { entity_id: entityId })
 }
 
 // -- Ingest SSE -------------------------------------------------------------------------------
