@@ -471,3 +471,22 @@ export interface MdmMergeResult {
   golden_record: GoldenRecord
   published: boolean
 }
+
+// -- FIBO (grounding + SPARQL over the reasoned TBox) ----------------------------------------
+
+/** GET /fibo/ground?label=&category= — the deterministic FIBO grounding for one ontology label. */
+export interface FiboGrounding {
+  label: string
+  grounded: boolean
+  class_iri: string | null
+  curie: string | null
+  refined: boolean
+}
+
+/** POST /fibo/sparql {query} — columns/rows of a read-only SELECT/ASK over the reasoned TBox. */
+export interface SparqlResult {
+  columns: string[]
+  rows: unknown[][]
+  count: number
+  boolean?: boolean
+}

@@ -5,7 +5,7 @@
 import type {
   DocRecord, Firm, FirmCandidate, GraphData, Health, ImpactBriefing, OntologyInfo, OnboardPick,
   ProvisionalEntity, QueryMode, QueryResponse, ReportPack, RiskData, EvalCard, SSEEvent,
-  MdmEntity, MdmSources, MdmMatch, MdmMergeResult,
+  MdmEntity, MdmSources, MdmMatch, MdmMergeResult, FiboGrounding, SparqlResult,
 } from './types'
 
 import ontologyFx from './fixtures/ontology.json'
@@ -380,6 +380,33 @@ export async function postMdmMatch(entityId: string): Promise<MdmMatch | null> {
 }
 export async function postMdmMerge(entityId: string): Promise<MdmMergeResult | null> {
   return postJson<MdmMergeResult>('/mdm/merge', { entity_id: entityId })
+}
+
+// -- FIBO (grounding + SPARQL) — powers the Graph Explorer node inspector + SPARQL box ---------
+
+/** Ground one ontology label to a FIBO class on demand (deterministic; works for un-stamped nodes). */
+export async function groundLabel(label: string, category?: string): Promise<FiboGrounding | null> {
+  const qs = new URLSearchParams({ label })
+  if (category) qs.set('category', category)
+  return tryFetch<FiboGrounding>(`/fibo/ground?${qs.toString()}`)
+}
+
+/** Run a read-only SPARQL query over the reasoned FIBO TBox. Returns the result or an `{error}`
+ *  message (the /fibo/sparql endpoint 400s with a `detail` on a malformed/forbidden query). */
+export async function runSparql(query: string): Promise<SparqlResult | { error: string }> {
+  try {
+    const r = await fetch('/fibo/sparql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    })
+    const body = (await r.json().catch(() => null)) as (SparqlResult & { detail?: string }) | null
+    if (!r.ok) return { error: (body?.detail ?? `SPARQL failed (${r.status})`).toString() }
+    if (!body) return { error: 'empty response from the FIBO service' }
+    return body
+  } catch {
+    return { error: 'FIBO service unreachable' }
+  }
 }
 
 // -- Ingest SSE -------------------------------------------------------------------------------
