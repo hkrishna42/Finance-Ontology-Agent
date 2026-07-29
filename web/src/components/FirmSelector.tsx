@@ -10,10 +10,12 @@ import { Icon } from '../lib/icons'
 // (the server defaults every panel to the active firm). When /firms is unreachable the data layer
 // serves the committed demo-firm fixture — we still render it, but selection is disabled.
 
-export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
+export function FirmSelector({ onSelect, onAddFirm, reloadKey, scopeAll, onSelectAll }: {
   onSelect?: (firm: Firm) => void
   onAddFirm?: () => void
   reloadKey?: number
+  scopeAll?: boolean            // "All data" (unscoped) is the current scope, not a registry firm
+  onSelectAll?: () => void      // switch to the unscoped "All data" scope
 }) {
   const [firms, setFirms] = useState<Firm[] | null>(null)
   const [source, setSource] = useState<Source | null>(null)
@@ -51,7 +53,13 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
 
   const choose = async (f: Firm) => {
     if (offline || busy) return
-    if (f.is_active) { setOpen(false); return }
+    if (f.is_active) {
+      // Already the registry's active firm: a no-op normally, but if we're in the unscoped "All data"
+      // scope, re-selecting it switches the UI back to this firm.
+      setOpen(false)
+      if (scopeAll) onSelect?.(f)
+      return
+    }
     setBusy(f.firm_id)
     const updated = await selectFirm(f.firm_id)
     setBusy(null)
@@ -110,9 +118,20 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
         title={offline ? 'Firm registry offline — showing the demo firm (selection disabled)' : 'Switch the active firm'}
         style={{ maxWidth: 248 }}
       >
-        <FirmAvatar firm={active} size={18} />
-        <span className="nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 }}>{active.name}</span>
-        {active.status === 'demo' && <DemoBadge />}
+        {scopeAll ? (
+          <>
+            <span style={{ width: 18, height: 18, flex: 'none', borderRadius: 5, display: 'grid', placeItems: 'center', color: 'var(--accent)', border: '1px solid var(--accent-border)' }}>
+              <Icon name="graph" size={12} />
+            </span>
+            <span className="nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 }}>All data</span>
+          </>
+        ) : (
+          <>
+            <FirmAvatar firm={active} size={18} />
+            <span className="nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 }}>{active.name}</span>
+            {active.status === 'demo' && <DemoBadge />}
+          </>
+        )}
         <span style={{ display: 'inline-flex', color: 'var(--text-faint)', transition: 'transform .15s', transform: open ? 'rotate(-90deg)' : 'rotate(90deg)' }}>
           <Icon name="arrow" size={13} />
         </span>
@@ -137,7 +156,7 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
             </div>
 
             {firms.map((f) => {
-              const isActive = f.is_active
+              const isActive = f.is_active && !scopeAll // in "All data" scope no single firm is active
               const canEnrich = f.source !== 'demo' // only real onboarded firms can be (re-)enriched
               const isEnriching = enrichingId === f.firm_id
               const note = enrichNote?.id === f.firm_id ? enrichNote : null
@@ -204,6 +223,29 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
                 </div>
               )
             })}
+
+            {/* Unscoped "All data" scope — the whole graph + all documents, incl. ad-hoc uploads that
+                attach to no firm. Sends the ALL_DATA_SCOPE sentinel through the firm-scoped getters. */}
+            <button
+              role="menuitem"
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => { setOpen(false); onSelectAll?.() }}
+              title="Show the whole graph and all documents, ignoring the active firm (includes uploaded documents)"
+              style={{
+                width: '100%', justifyContent: 'flex-start', gap: 10, padding: '8px 10px', color: 'var(--text)',
+                borderRadius: 'var(--r-sm)', ...(scopeAll ? { background: 'var(--accent-weak)' } : {}),
+              }}
+            >
+              <span style={{ width: 22, height: 22, flex: 'none', borderRadius: 6, display: 'grid', placeItems: 'center', border: '1px solid var(--border-strong)', color: 'var(--accent)' }}>
+                <Icon name="graph" size={14} />
+              </span>
+              <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span className="nowrap" style={{ fontWeight: 600, fontSize: 13 }}>All data</span>
+                <span className="faint" style={{ fontSize: 11.5, fontWeight: 400 }}>unscoped · includes uploads</span>
+              </span>
+              {scopeAll && <span style={{ display: 'inline-flex', color: 'var(--accent)' }}><Icon name="check" size={15} /></span>}
+            </button>
 
             <div style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
 

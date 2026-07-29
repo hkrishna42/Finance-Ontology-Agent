@@ -186,3 +186,27 @@ def test_documents_whole_corpus_when_no_firm(monkeypatch):
     get_documents(entitlements=["public"], firm=None)
     assert calls[0]["cypher"] == _DOCS_CYPHER
     assert "firm" not in calls[0]["params"]
+
+
+def test_graph_all_scope_sentinel_is_unscoped(monkeypatch):
+    # The "All data" scope: ?firm=__all__ forces the whole-graph query even when a firm IS active,
+    # so a document uploaded outside any firm is still browsable.
+    from api.firms.scope import ALL_SCOPE
+
+    monkeypatch.setattr(gv.scope, "active_firm_name", lambda conn=None: "Demo Investment Management")
+    calls = _install_fake(monkeypatch, [_row()])
+    out = get_graph(limit=300, min_confidence=0.0, entitlements=["public"], firm=ALL_SCOPE)
+    assert calls[0]["cypher"] == _SUBGRAPH_CYPHER  # whole graph, not the firm subgraph
+    assert "firm" not in calls[0]["params"]
+    assert len(out["nodes"]) == 2
+
+
+def test_documents_all_scope_sentinel_is_unscoped(monkeypatch):
+    from api.firms.scope import ALL_SCOPE
+
+    monkeypatch.setattr(gv.scope, "active_firm_name", lambda conn=None: "Demo Investment Management")
+    calls = _install_fake(monkeypatch, [_doc_row()])
+    docs = get_documents(entitlements=["public"], firm=ALL_SCOPE)
+    assert calls[0]["cypher"] == _DOCS_CYPHER  # all documents, not the firm's
+    assert "firm" not in calls[0]["params"]
+    assert len(docs) == 1

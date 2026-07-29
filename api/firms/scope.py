@@ -53,8 +53,20 @@ def active_firm_name(conn: sqlite3.Connection | None = None) -> str | None:
     return active["name"] if active else None
 
 
+# Sentinel ``?firm=`` value meaning "explicitly unscoped" — the whole graph / all documents, ignoring
+# the active firm. The UI's "All data" scope sends this so a document uploaded outside any firm (it
+# attaches to none) is still browsable in the Graph Explorer and Documents.
+ALL_SCOPE = "__all__"
+
+
 def resolve_firm(firm: str | None, conn: sqlite3.Connection | None = None) -> str | None:
-    """The requested ``firm`` (query param) if truthy, else the active firm; ``None`` if neither."""
+    """The requested ``firm`` (query param) if truthy, else the active firm; ``None`` if neither.
+
+    The ``ALL_SCOPE`` sentinel resolves to ``None`` (explicitly unscoped), which the read endpoints
+    already treat as "the whole graph / all documents".
+    """
+    if firm == ALL_SCOPE:
+        return None
     if firm:
         return firm
     return active_firm_name(conn)

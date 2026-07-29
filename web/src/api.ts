@@ -39,6 +39,11 @@ async function tryFetch<T>(path: string, init?: RequestInit): Promise<T | null> 
 export const DEMO_FIRM_NAME = 'Demo Investment Management'
 const isDemoFirm = (firm?: string | null): boolean => (firm ?? '') === DEMO_FIRM_NAME
 
+/** Sentinel firm-scope value: show the whole graph / all documents, ignoring the active firm.
+ *  The getters send it as `?firm=__all__`; the backend's `resolve_firm` maps it to the unscoped path,
+ *  so an uploaded document (attached to no firm) is browsable in the Graph Explorer + Documents. */
+export const ALL_DATA_SCOPE = '__all__'
+
 /** Resolve a getter result. Live always wins. Offline, `fixture` is served only for firm-agnostic
  *  getters (no `firmGuard`) or the demo firm; a firm-scoped getter for a real firm gets the typed
  *  `empty` value instead — tagged 'live' because it is emphatically NOT the committed demo fixture,

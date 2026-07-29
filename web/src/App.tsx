@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { getActiveFirm, getHealth, getOntologyInfo } from './api'
+import { ALL_DATA_SCOPE, getActiveFirm, getHealth, getOntologyInfo } from './api'
 import type { Health, OntologyInfo } from './types'
 import { useTheme } from './lib/theme'
 import { Icon } from './lib/icons'
@@ -117,6 +117,10 @@ export default function App() {
             onSelect={(firm) => { setActiveFirm(firm.name); setReloadKey((k) => k + 1) }}
             onAddFirm={() => setAddFirmOpen(true)}
             reloadKey={reloadKey}
+            scopeAll={activeFirm === ALL_DATA_SCOPE}
+            // No reloadKey bump: the firm-scoped panels re-fetch off their `firm` dep, and bumping it
+            // would re-run the mount effect that resets activeFirm to the registry's active firm.
+            onSelectAll={() => setActiveFirm(ALL_DATA_SCOPE)}
           />
 
           {info && (
