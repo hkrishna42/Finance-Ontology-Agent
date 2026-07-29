@@ -1,0 +1,55 @@
+# MDM attribute-level survivorship rules — declarative, per entity type. Loaded like
+# api/ontology/impact_policy.yaml. Each attribute names a rule; the engine (api/mdm/survivorship.py)
+# reconciles the conflicting source values into one canonical golden value with an auditable rationale.
+#
+# Rule kinds:
+#   system_of_record            - a governed source wins (its value survives); label overridable.
+#   trust_wins                  - the highest-trust source with a non-empty value wins.
+#   canonical_identifier_crosswalk - the source-of-record id is canonical; other ids are RETAINED as
+#                                 alternates on the golden record.
+#   most_complete               - the most complete value wins (longest / has a postcode).
+#   numeric_tolerance_then_trust - if numeric values agree within tolerance_pct, the trust/source value
+#                                 survives (noting the agreement); otherwise fall back to trust.
+#   ontology_classification_mapping - variant type strings map to one canonical class (FIBO-aligned).
+
+version: 1
+default_rule: trust_wins
+
+entity_types:
+
+  RealProperty:
+    dim_table: dim_property
+    name_field: property_name
+    id_field: property_id
+    threshold: 0.88
+    attributes:
+      property_name: {rule: system_of_record, source: curated_gold, label: "Curated Gold System Wins"}
+      property_id: {rule: canonical_identifier_crosswalk, source: curated_gold, label: "Canonical Identifier Crosswalk"}
+      address: {rule: most_complete, label: "Most Complete Verified Address"}
+      rentable_area: {rule: numeric_tolerance_then_trust, tolerance_pct: 1.0, source: curated_gold, label: "Agreement Within Tolerance Then Curated Wins"}
+      property_type: {rule: ontology_classification_mapping, canonical: "Commercial Office", label: "Ontology Classification Mapping"}
+
+  Company:
+    dim_table: dim_legal_entity
+    name_field: legal_name
+    id_field: entity_id
+    strong_ids: [lei]
+    threshold: 0.88
+    attributes:
+      legal_name: {rule: system_of_record, source: curated_gold, label: "Curated Gold System Wins"}
+      entity_id: {rule: canonical_identifier_crosswalk, source: curated_gold, label: "Canonical Identifier Crosswalk"}
+      lei: {rule: most_complete, label: "Most Complete Legal Identifier (LEI)"}
+      jurisdiction: {rule: most_complete, label: "Most Complete Verified Value"}
+      role: {rule: trust_wins, label: "Highest-Trust Source Wins"}
+
+  Fund:
+    dim_table: dim_fund
+    name_field: fund_name
+    id_field: fund_id
+    threshold: 0.85
+    attributes:
+      fund_name: {rule: system_of_record, source: curated_gold, label: "Curated Gold System Wins"}
+      fund_id: {rule: canonical_identifier_crosswalk, source: curated_gold, label: "Canonical Identifier Crosswalk"}
+      base_currency: {rule: trust_wins, label: "Highest-Trust Source Wins"}
+      strategy: {rule: system_of_record, source: curated_gold, label: "Curated Gold System Wins"}
+      inception_date: {rule: most_complete, label: "Most Complete Value"}
