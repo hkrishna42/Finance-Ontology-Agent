@@ -8,6 +8,7 @@ code never names a model — the provider routes Role.EXTRACTION to Sonnet 5 (Ba
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from api.config import get_settings
@@ -18,6 +19,13 @@ from api.providers.factory import get_llm_provider
 
 from .chunk import Chunk, chunk_document
 from .grounding import DEFAULT_THRESHOLD, DroppedTriple, filter_extraction
+
+logger = logging.getLogger(__name__)
+
+# Role.EXTRACTION runs Sonnet-5 with adaptive thinking, which draws from the same token budget as the
+# JSON output. The old 2048 cap let a dense chunk's entity/relation JSON truncate mid-string (invalid
+# JSON → the whole document aborted). Give extraction ample room for thinking + a rich extraction.
+EXTRACTION_MAX_TOKENS = 8192
 
 
 @dataclass
@@ -31,6 +39,7 @@ class ChunkExtraction:
 @dataclass
 class DocumentExtraction:
     per_chunk: list[ChunkExtraction] = field(default_factory=list)
+    failed_chunks: int = 0  # chunks whose extraction call errored and were skipped (kept aligned)
 
     @property
     def entities(self):
@@ -73,6 +82,7 @@ def extract_chunk(
         schema=extraction_json_schema(),
         system=_system(doc_meta),
         messages=messages,
+        max_tokens=EXTRACTION_MAX_TOKENS,  # room for adaptive thinking + a rich extraction
         cache_system=True,  # prompt-cache the stable schema-card
     )
     parsed = ExtractionResult.model_validate(res.data)
@@ -91,8 +101,17 @@ def extract_document(
     provider = provider or get_llm_provider(get_settings())
     chunks = chunks if chunks is not None else chunk_document(text)
     out = DocumentExtraction()
-    for ch in chunks:
-        out.per_chunk.append(
-            extract_chunk(ch.text, doc_meta=doc_meta, provider=provider, threshold=threshold)
-        )
+    last_exc: Exception | None = None
+    for i, ch in enumerate(chunks):
+        try:
+            ce = extract_chunk(ch.text, doc_meta=doc_meta, provider=provider, threshold=threshold)
+        except Exception as exc:  # noqa: BLE001 - isolate a bad chunk; don't lose the whole document
+            out.failed_chunks += 1
+            last_exc = exc
+            logger.warning("extraction failed for chunk %d/%d: %s", i + 1, len(chunks), exc)
+            ce = ChunkExtraction(ExtractionResult(), [], Usage(), "error")
+        out.per_chunk.append(ce)  # kept 1:1 with `chunks` so downstream zip(strict=True) holds
+    # Every chunk failing is systemic (bad key / network / schema), not one awkward chunk — surface it.
+    if chunks and out.failed_chunks == len(chunks) and last_exc is not None:
+        raise last_exc
     return out
