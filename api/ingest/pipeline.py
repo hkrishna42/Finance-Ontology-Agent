@@ -115,6 +115,16 @@ def _entity_node_props(e: ExtractedEntity, resolution: Any = None) -> dict[str, 
             props["lei"] = resolution.lei
         if getattr(resolution, "ticker", None):
             props["ticker"] = resolution.ticker
+    # Agent B (Ontologist): stamp the FIBO OWL grounding on the node. Deterministic (no LLM), so it
+    # runs in stub. A single-class instance is OWL-consistent by construction, so a grounded node is
+    # reasoning_valid; the full OWL reasoner (Agent C) runs on demand via /fibo/validate + over MDM.
+    from ..fibo import grounding as fibo_grounding
+
+    g = fibo_grounding.ground(e.label, category=e.category, attributes=dict(e.attributes or {}))
+    if g.grounded:
+        props["fibo_class"] = g.curie
+        props["fibo_grounded"] = True
+        props["reasoning_valid"] = True
     return props
 
 

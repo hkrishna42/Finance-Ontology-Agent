@@ -129,3 +129,24 @@ def test_fibo_routes():
     assert s.status_code == 200
     bad = c.post("/fibo/sparql", json={"query": "DELETE { ?x ?p ?o } WHERE { ?x ?p ?o }"})
     assert bad.status_code == 400
+
+
+# --- pipeline grounding (Agent B stamps FIBO on ingested nodes) ------------------------------
+
+
+def test_pipeline_stamps_fibo_grounding_on_nodes():
+    from api.ingest.pipeline import _entity_node_props
+    from api.ontology.models import ExtractedEntity
+
+    props = _entity_node_props(ExtractedEntity(label="Company", name="Acme Corp", span="Acme Corp"))
+    assert props["fibo_class"] == "cmns-org:LegalEntity"
+    assert props["fibo_grounded"] is True and props["reasoning_valid"] is True
+
+    issuer = ExtractedEntity(label="Company", name="Atlantic Credit", span="Atlantic Credit",
+                             attributes={"role": "bond issuer"})
+    assert _entity_node_props(issuer)["fibo_class"] == "fibo-sec-dbt-dbt:CorporateDebtIssuer"
+
+    # an ungrounded (but valid) label leaves no FIBO props
+    assert "fibo_class" not in _entity_node_props(
+        ExtractedEntity(label="RiskFactor", name="Supply risk", span="Supply risk"))
+
