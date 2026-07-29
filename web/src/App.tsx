@@ -56,6 +56,8 @@ export default function App() {
   const [reloadKey, setReloadKey] = useState(0)
   // Controls the "Add firm" onboarding modal, opened from the FirmSelector's "+ Add firm…" entry.
   const [addFirmOpen, setAddFirmOpen] = useState(false)
+  // Mobile off-canvas nav drawer (no effect at desktop widths, where the sidebar is a static column).
+  const [navOpen, setNavOpen] = useState(false)
 
   useEffect(() => {
     getHealth().then((h) => setHealth(h?.data ?? null))
@@ -63,8 +65,8 @@ export default function App() {
     getActiveFirm().then((r) => setActiveFirm(r.data?.name ?? null))
   }, [reloadKey])
 
-  const navigate = (t: NavTarget) => { setActive(t.panel); setFocus(t.focus) }
-  const clickNav = (id: PanelId) => { setActive(id); setFocus(undefined) }
+  const navigate = (t: NavTarget) => { setActive(t.panel); setFocus(t.focus); setNavOpen(false) }
+  const clickNav = (id: PanelId) => { setActive(id); setFocus(undefined); setNavOpen(false) }
 
   const themeKey = useMemo(() => {
     if (pref !== 'system') return pref
@@ -75,8 +77,9 @@ export default function App() {
   const activeDef = NAV.find((n) => n.id === active)!
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell ${navOpen ? 'nav-open' : ''}`}>
+      <div className="scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
         <div className="brand">
           <div className="brand-mark">F</div>
           <div>
@@ -103,7 +106,10 @@ export default function App() {
 
       <div className="main">
         <header className="topbar">
-          <Icon name={activeDef.icon} size={17} />
+          <button className="icon-btn hamburger" onClick={() => setNavOpen((v) => !v)} aria-label="Toggle navigation" aria-expanded={navOpen}>
+            <Icon name="menu" size={18} />
+          </button>
+          <Icon name={activeDef.icon} size={17} className="topbar-ico" />
           <span className="topbar-title">{activeDef.label}</span>
           <span className="topbar-spacer" />
 
@@ -114,14 +120,14 @@ export default function App() {
           />
 
           {info && (
-            <span className="pill" title="Ontology single source of truth">
+            <span className="pill hide-md" title="Ontology single source of truth">
               {info.entity_count} entities · {info.relation_count} relations · {info.vector_dim}-dim
             </span>
           )}
           {health ? (
-            <span className="pill good"><span className="dot" />API OK{health.mode ? ` · ${health.mode}` : ''}</span>
+            <span className="pill good hide-sm"><span className="dot" />API OK{health.mode ? ` · ${health.mode}` : ''}</span>
           ) : (
-            <span className="pill" title="Live API not reachable — panels are served from committed fixtures"><span className="dot" />API offline · fixtures</span>
+            <span className="pill hide-sm" title="Live API not reachable — panels are served from committed fixtures"><span className="dot" />API offline · fixtures</span>
           )}
           <button className="icon-btn" onClick={cycle} title={`Theme: ${pref} (click to change)`} aria-label="Toggle theme">
             <Icon name={themeIcon} size={17} />

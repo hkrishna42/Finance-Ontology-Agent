@@ -100,7 +100,7 @@ export function FirmSelector({ onSelect, onAddFirm, reloadKey }: {
   }
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="firm-selector" style={{ position: 'relative' }}>
       <button
         type="button"
         className="btn btn-sm"

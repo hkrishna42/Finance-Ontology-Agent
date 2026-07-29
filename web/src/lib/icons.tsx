@@ -4,7 +4,7 @@
 export type IconName =
   | 'chat' | 'graph' | 'doc' | 'ingest' | 'resolve' | 'risk' | 'impact' | 'report' | 'eval'
   | 'sun' | 'moon' | 'monitor' | 'close' | 'arrow' | 'external' | 'merge' | 'search'
-  | 'alert' | 'check' | 'info' | 'play' | 'lock' | 'refresh'
+  | 'alert' | 'check' | 'info' | 'play' | 'lock' | 'refresh' | 'menu'
 
 const P: Record<IconName, string> = {
   chat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
@@ -30,6 +30,7 @@ const P: Record<IconName, string> = {
   play: 'M5 3l14 9-14 9V3z',
   lock: 'M5 11h14v10H5z M8 11V7a4 4 0 0 1 8 0v4',
   refresh: 'M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
+  menu: 'M3 6h18 M3 12h18 M3 18h18',
 }
 
 export function Icon({ name, size = 16, className }: { name: IconName; size?: number; className?: string }) {
