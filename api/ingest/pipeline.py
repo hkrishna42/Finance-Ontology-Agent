@@ -329,6 +329,57 @@ def ingest_document(
             store.close()
 
 
+def _norm_company(name: str, resolution: Any = None) -> str:
+    """Normalized identity for a Company name (reuses the resolver's `normalized` form when present)."""
+    if resolution is not None and getattr(resolution, "normalized", None):
+        return resolution.normalized
+    from ..resolution.normalize import normalize
+
+    return normalize(name)
+
+
+def _existing_company_name(store: Any, cik: str | None, norm: str | None) -> str | None:
+    """The name of an existing Company node matching a resolved CIK, else a matching `norm`."""
+    try:
+        if cik:
+            rows = store.run("MATCH (c:Company {cik: $cik}) RETURN c.name AS name LIMIT 1", cik=str(cik))
+            if rows and rows[0].get("name"):
+                return rows[0]["name"]
+        if norm:
+            rows = store.run("MATCH (c:Company {norm: $norm}) RETURN c.name AS name LIMIT 1", norm=norm)
+            if rows and rows[0].get("name"):
+                return rows[0]["name"]
+    except Exception:  # noqa: BLE001 - dedup is best-effort; never break a write
+        pass
+    return None
+
+
+def _canonical_company_names(store: Any, resolution_map: dict[str, Any]) -> dict[str, str]:
+    """mention name -> canonical merge name for Companies — snap variant mentions onto ONE node.
+
+    Groups the document's Company mentions by resolved CIK (else normalized name); a group's canonical
+    name is an existing graph node (matched by CIK or `norm`) when one exists, else the shortest
+    mention. So re-ingesting a document that names the same real company differently ("NVIDIA" vs
+    "NVIDIA Corporation" -> same CIK) reuses the one node instead of creating a duplicate. The resolver
+    already computed the CIK; this uses it as identity where the raw-name MERGE key could not.
+    """
+    if not resolution_map:
+        return {}
+    groups: dict[str, list[str]] = {}
+    for name, res in resolution_map.items():
+        cik = res.cik if (res is not None and getattr(res, "status", "") == "resolved") else None
+        gk = f"cik:{cik}" if cik else f"norm:{_norm_company(name, res)}"
+        groups.setdefault(gk, []).append(name)
+    canon: dict[str, str] = {}
+    for gk, names in groups.items():
+        cik = gk[4:] if gk.startswith("cik:") else None
+        norm = _norm_company(names[0], resolution_map.get(names[0]))
+        canonical = _existing_company_name(store, cik, norm) or min(names, key=lambda n: (len(n), n))
+        for n in names:
+            canon[n] = canonical
+    return canon
+
+
 def _write_graph(
     *,
     store: Any,
@@ -377,6 +428,7 @@ def _write_graph(
     nodes += len(chunks)
 
     # --- Entity nodes + MENTIONS provenance ---------------------------------------------
+    canon_company = _canonical_company_names(store, resolution_map)
     name_label: dict[str, str] = {}
     written_nodes: set[tuple[str, str]] = set()
     mentions_seen: set[tuple[str, str, str]] = set()
@@ -386,24 +438,29 @@ def _write_graph(
         for e in ce.result.entities:
             name_label.setdefault(e.name, e.label)
             key = entity_spec(e.label).key
-            node_id = (e.label, e.name)
+            # a Company mention snaps onto its canonical node (dedup by resolved CIK / norm)
+            merge_name = canon_company.get(e.name, e.name) if e.label == "Company" else e.name
+            node_id = (e.label, merge_name)
             if node_id not in written_nodes:
                 written_nodes.add(node_id)
+                props = _entity_node_props(
+                    e, resolution_map.get(e.name) if e.label == "Company" else None
+                )
+                if e.label == "Company":
+                    props["norm"] = _norm_company(merge_name, resolution_map.get(e.name))
                 store.run(
                     f"MERGE (n:{e.label} {{{key}: $kv}}) SET n += $props",
-                    kv=e.name,
-                    props=_entity_node_props(
-                        e, resolution_map.get(e.name) if e.label == "Company" else None
-                    ),
+                    kv=merge_name,
+                    props=props,
                 )
-            mention_id = (cid, e.label, e.name)
+            mention_id = (cid, e.label, merge_name)
             if mention_id not in mentions_seen:
                 mentions_seen.add(mention_id)
                 store.run(
                     f"MATCH (c:Chunk {{chunk_id: $cid}}), (n:{e.label} {{{key}: $kv}}) "
                     "MERGE (c)-[:MENTIONS]->(n)",
                     cid=cid,
-                    kv=e.name,
+                    kv=merge_name,
                 )
                 edges += 1
     nodes += len(written_nodes)
@@ -414,6 +471,7 @@ def _write_graph(
         chunks=chunks,
         extraction=extraction,
         name_label=name_label,
+        canon_company=canon_company,
         as_of=as_of,
         reported_at=reported_at,
     )
@@ -435,10 +493,15 @@ def _build_triples(
     chunks: list[Chunk],
     extraction: DocumentExtraction,
     name_label: dict[str, str],
+    canon_company: dict[str, str],
     as_of: str,
     reported_at: str,
 ) -> list[CandidateTriple]:
-    """Turn each grounded relation into a provenance-stamped `CandidateTriple` for the steward."""
+    """Turn each grounded relation into a provenance-stamped `CandidateTriple` for the steward.
+
+    Company endpoints are rewritten to their canonical merge name (`canon_company`) so the steward's
+    edges attach to the same deduped Company node the entity write used — not a variant duplicate.
+    """
     triples: list[CandidateTriple] = []
     for chunk, ce in zip(chunks, extraction.per_chunk, strict=True):
         cid = _chunk_id(source.doc_id, chunk.index)
@@ -446,6 +509,8 @@ def _build_triples(
             spec = relation_spec(r.type)
             subject_label = _infer_label(r.subject, name_label, spec.domain)
             object_label = _infer_label(r.object, name_label, spec.range)
+            subject_key = canon_company.get(r.subject, r.subject) if subject_label == "Company" else r.subject
+            object_key = canon_company.get(r.object, r.object) if object_label == "Company" else r.object
             provenance = {
                 "doc_id": source.doc_id,
                 "chunk_id": cid,
@@ -460,10 +525,10 @@ def _build_triples(
             triples.append(
                 CandidateTriple(
                     subject_label=subject_label,
-                    subject_key=r.subject,
+                    subject_key=subject_key,
                     rel_type=r.type,
                     object_label=object_label,
-                    object_key=r.object,
+                    object_key=object_key,
                     qualifiers=dict(r.qualifiers),
                     provenance=provenance,
                     confidence=r.confidence,

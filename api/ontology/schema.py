@@ -344,6 +344,11 @@ def neo4j_ddl(dim: int = VECTOR_DIM) -> list[str]:
         "CREATE FULLTEXT INDEX chunk_text IF NOT EXISTS "
         "FOR (c:Chunk) ON EACH [c.text]"
     )
+    # Non-unique index backing canonical-identity dedup: Company mentions snap onto an existing node
+    # whose normalized name matches (see api/ingest/pipeline.py::_canonical_company_names).
+    stmts.append(
+        "CREATE INDEX company_norm IF NOT EXISTS FOR (c:Company) ON (c.norm)"
+    )
     return stmts
 
 
