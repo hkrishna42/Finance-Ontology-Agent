@@ -159,6 +159,34 @@ export async function getResolutionQueue(): Promise<Loaded<ProvisionalEntity[]>>
   return loaded(await tryFetch<ProvisionalEntity[]>('/resolve'), resolveFx as unknown as ProvisionalEntity[])
 }
 
+// Steward actions. The backend queue id is embedded in ProvisionalEntity.id as `prov-<n>` for live
+// rows; demo-fixture rows carry a non-numeric slug (`prov-taiwan-semi`) and have no backend row, so
+// the panel acts on them locally only.
+
+/** Numeric backend queue id for a ProvisionalEntity, or null for a demo-fixture (non-live) row. */
+export function queueIdOf(provId: string): number | null {
+  const m = /^prov-(\d+)$/.exec(provId)
+  return m ? Number(m[1]) : null
+}
+
+/** Merge a provisional mention onto a chosen canonical candidate — repoints the graph server-side. */
+export async function resolveMerge(
+  queueId: number,
+  opts: { canonical_key: string; canonical_label?: string; cik?: string },
+): Promise<boolean> {
+  return (await postJson('/resolve/merge', { queue_id: queueId, ...opts })) !== null
+}
+
+/** Keep a provisional mention as its own new canonical node. */
+export async function resolvePromote(queueId: number): Promise<boolean> {
+  return (await postJson('/resolve/promote', { queue_id: queueId })) !== null
+}
+
+/** Reject a provisional mention (discarded; kept for audit). */
+export async function resolveReject(queueId: number): Promise<boolean> {
+  return (await postJson('/resolve/reject', { queue_id: queueId })) !== null
+}
+
 // -- Risk -------------------------------------------------------------------------------------
 
 export async function getRisk(): Promise<Loaded<RiskData>> {

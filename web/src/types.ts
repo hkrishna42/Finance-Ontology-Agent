@@ -193,7 +193,7 @@ export interface ProvisionalEntity {
   chunk_id: string
   confidence: number
   candidates: ResolutionCandidate[]
-  status?: 'pending' | 'merged' | 'kept_new'
+  status?: 'pending' | 'merged' | 'kept_new' | 'rejected'
 }
 
 // ---------------------------------------------------------------------------------------------

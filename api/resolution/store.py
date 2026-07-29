@@ -137,16 +137,47 @@ def merge(
     conn: sqlite3.Connection,
     queue_id: int,
     *,
-    cik: str,
+    cik: str | None = None,
     lei: str | None = None,
     title: str | None = None,
 ) -> dict[str, Any] | None:
-    """Steward action: pin a provisional record to a CIK/LEI and mark it merged."""
+    """Steward action: pin a provisional record to a canonical entity and mark it merged.
+
+    `cik`/`lei`/`title` all `coalesce` — a `None` argument leaves the stored value untouched (a
+    Person merge, for instance, carries no CIK, and repointing keys on the canonical node's name).
+    """
     conn.execute(
         "UPDATE resolution_queue "
-        "SET candidate_cik = ?, candidate_lei = coalesce(?, candidate_lei), "
+        "SET candidate_cik = coalesce(?, candidate_cik), "
+        "    candidate_lei = coalesce(?, candidate_lei), "
         "    candidate_title = coalesce(?, candidate_title), method = 'steward_merge', "
         "    confidence = 1.0, status = 'merged', updated_at = datetime('now') "
+        "WHERE id = ?",
+        (cik, lei, title, queue_id),
+    )
+    conn.commit()
+    return get(conn, queue_id)
+
+
+def promote(
+    conn: sqlite3.Connection,
+    queue_id: int,
+    *,
+    cik: str | None = None,
+    lei: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any] | None:
+    """Steward action: keep the provisional mention as its own new canonical node.
+
+    The ingest pipeline already wrote the mention's node, so promotion is a queue-status decision:
+    accept the node as canonical rather than folding it into an existing one.
+    """
+    conn.execute(
+        "UPDATE resolution_queue "
+        "SET candidate_cik = coalesce(?, candidate_cik), "
+        "    candidate_lei = coalesce(?, candidate_lei), "
+        "    candidate_title = coalesce(?, candidate_title), method = 'steward_promote', "
+        "    confidence = 1.0, status = 'promoted', updated_at = datetime('now') "
         "WHERE id = ?",
         (cik, lei, title, queue_id),
     )

@@ -399,6 +399,8 @@ def _write_graph(
         "sensitivity": source.sensitivity,
         "title": source.title or source.doc_id,
     }
+    if source.source:  # provenance: how the doc entered (upload / text / edgar), so it's discoverable
+        doc_props["source"] = source.source
     if source.accession_no:
         doc_props["accession_no"] = source.accession_no
     if source.filing_date:

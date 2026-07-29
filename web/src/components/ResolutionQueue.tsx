@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { getResolutionQueue } from '../api'
-import type { ProvisionalEntity } from '../types'
+import { getResolutionQueue, queueIdOf, resolveMerge, resolvePromote, resolveReject } from '../api'
+import type { ProvisionalEntity, ResolutionCandidate } from '../types'
 import { useLoaded } from '../lib/useLoaded'
 import { EntityTag, PanelHead, SourceBadge } from '../lib/ui'
 import { Icon } from '../lib/icons'
@@ -8,10 +8,33 @@ import { Icon } from '../lib/icons'
 export function ResolutionQueue() {
   const { data, source, loading } = useLoaded<ProvisionalEntity[]>(getResolutionQueue)
   const [items, setItems] = useState<ProvisionalEntity[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
   useEffect(() => { if (data) setItems(data) }, [data])
 
   const setStatus = (id: string, status: ProvisionalEntity['status']) =>
     setItems((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
+
+  // Apply a steward decision: update the UI optimistically, then persist for live queue rows
+  // (demo-fixture rows have no backend id, so they stay local — the panel is still demoable offline).
+  const decide = async (
+    p: ProvisionalEntity, status: ProvisionalEntity['status'], candidate?: ResolutionCandidate,
+  ) => {
+    setStatus(p.id, status)
+    const qid = queueIdOf(p.id)
+    if (qid === null) return
+    setBusy(p.id)
+    try {
+      if (status === 'merged' && candidate) {
+        await resolveMerge(qid, { canonical_key: candidate.existing_id, canonical_label: candidate.label })
+      } else if (status === 'kept_new') {
+        await resolvePromote(qid)
+      } else if (status === 'rejected') {
+        await resolveReject(qid)
+      }
+    } finally {
+      setBusy((b) => (b === p.id ? null : b))
+    }
+  }
 
   const pending = items.filter((p) => (p.status ?? 'pending') === 'pending').length
 
@@ -50,8 +73,12 @@ export function ResolutionQueue() {
 
                 {status !== 'pending' ? (
                   <div className={`pill ${status === 'merged' ? 'good' : ''}`}>
-                    <Icon name={status === 'merged' ? 'merge' : 'check'} size={13} />
-                    {status === 'merged' ? 'Merged to canonical entity' : 'Kept as a new node'}
+                    <Icon name={status === 'merged' ? 'merge' : status === 'rejected' ? 'close' : 'check'} size={13} />
+                    {status === 'merged'
+                      ? 'Merged to canonical entity'
+                      : status === 'rejected'
+                        ? 'Rejected — discarded'
+                        : 'Kept as a new node'}
                     <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => setStatus(p.id, 'pending')}>undo</button>
                   </div>
                 ) : (
@@ -69,13 +96,16 @@ export function ResolutionQueue() {
                         </div>
                         <div className="confbar" style={{ maxWidth: 90 }}><span style={{ width: `${c.score * 100}%` }} /></div>
                         <span className="score" style={{ fontSize: 12, minWidth: 34, textAlign: 'right' }}>{c.score.toFixed(2)}</span>
-                        <button className="btn btn-primary btn-sm" onClick={() => setStatus(p.id, 'merged')}>
+                        <button className="btn btn-primary btn-sm" disabled={busy === p.id} onClick={() => decide(p, 'merged', c)}>
                           <Icon name="merge" size={13} />Merge
                         </button>
                       </div>
                     ))}
-                    <div>
-                      <button className="btn btn-sm" onClick={() => setStatus(p.id, 'kept_new')}>Keep as new node</button>
+                    <div className="row" style={{ gap: 8 }}>
+                      <button className="btn btn-sm" disabled={busy === p.id} onClick={() => decide(p, 'kept_new')}>Keep as new node</button>
+                      <button className="btn btn-ghost btn-sm" disabled={busy === p.id} onClick={() => decide(p, 'rejected')}>
+                        <Icon name="close" size={13} />Reject
+                      </button>
                     </div>
                   </div>
                 )}

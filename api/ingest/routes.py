@@ -100,13 +100,28 @@ def _form_str(form: Any, key: str) -> str | None:
 
 
 async def _sse_events(source: SourceDoc) -> AsyncIterator[dict[str, str]]:
-    """Bridge the synchronous pipeline generator to an async SSE stream via a worker thread."""
+    """Bridge the synchronous pipeline generator to an async SSE stream via a worker thread.
+
+    A request-scoped SQLite connection is threaded into the pipeline as `queue_conn` so an uploaded
+    document's unresolved mentions are parked in the resolution queue for MDM review (the pipeline
+    would otherwise open + own its own connection). `connect(check_same_thread=False)` makes it safe
+    to hand the connection to the worker thread.
+    """
+    from ..config import get_settings
+    from ..resolution import store as queue_store
+    from ..stores.sqlite import connect
+
     queue: asyncio.Queue[Any] = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
+    queue_conn = connect(get_settings().sqlite_path)
+    queue_store.init_resolution_db(queue_conn)
+
     def worker() -> None:
+        # The worker is the sole user of `queue_conn` after hand-off, so it also closes it — no
+        # cross-thread close race if the SSE consumer disconnects mid-stream.
         try:
-            for event in ingest_document(source):
+            for event in ingest_document(source, queue_conn=queue_conn):
                 loop.call_soon_threadsafe(queue.put_nowait, event)
         except Exception as exc:  # noqa: BLE001 - the ERROR event was already emitted upstream
             fallback = make_event(
@@ -114,6 +129,7 @@ async def _sse_events(source: SourceDoc) -> AsyncIterator[dict[str, str]]:
             )
             loop.call_soon_threadsafe(queue.put_nowait, fallback)
         finally:
+            queue_conn.close()
             loop.call_soon_threadsafe(queue.put_nowait, _STREAM_SENTINEL)
 
     threading.Thread(target=worker, name="ingest-pipeline", daemon=True).start()
