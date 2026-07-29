@@ -174,10 +174,16 @@ MDM core) is complete; Phases 2–3 remain. See `HANDOVER_NEXT_SESSION.md` for t
 | **PDF ingest** (`sources.py`) | `pypdf` born-digital text in `source_from_bytes`; scanned → points at the opt-in OCR extra | born-digital PDF fixture extracts text through the stub pipeline |
 | **MDM wizard + upload UI** (`web/src`) | The 5-step golden-record wizard (4-agent strip, entity cards, conflicting sources + trust, matching %, survivorship table, golden record) + a real file/text upload streaming the pipeline | browser-verified at localhost:5173 → **Master Data** |
 
-## Remaining (next session)
+## Resolution-queue reconcile · Phase 2 · Phase 3 — complete (3 commits, `make ci` green, 487 passed)
 
-- **Resolution-queue reconcile:** `/resolve/merge` repoint Neo4j + `/resolve/reject` + `/resolve/promote`
-  routes; wire the `ResolutionQueue.tsx` buttons; thread `queue_conn` into the upload path.
-- **Phase 2 — interactive FIBO graph:** search, domain filters + legend, Force/DAG/Radial layouts +
-  zoom + minimap, rich node inspector (FIBO + lakehouse provenance), SPARQL / NL query.
-- **Phase 3 — responsive UI:** collapsible sidebar + hamburger + scrim, responsive topbar, fluid canvas.
+The three items left after the MDM core are done, each its own `make ci`-green commit, live-verified
+in the browser (stub mode, demo firm). The guardrail grep stays at **0**.
+
+| Capability | What landed | Evidence |
+|---|---|---|
+| **Resolution-queue reconcile** (`89a79f5`) | `api/resolution/graph_reconcile.py::repoint_entity` moves a duplicate mention node's MENTIONS + semantic edges onto the canonical node, merges props (canonical identity wins), `DETACH DELETE`s the dup — **no APOC** (relation types discovered at runtime + substituted only as ontology-validated literals). `/resolve/merge` repoints when a `canonical_key` is given (best-effort, never 500s the audit write; `cik` now optional); new `/resolve/promote` + `/resolve/reject` routes; `ResolutionQueue.tsx` Merge/Keep/**Reject** buttons call them for live rows (demo-fixture rows stay local). Upload path threads a request-scoped `queue_conn` + stamps `d.source` provenance. | Live: merging provisional "Acme Corp" onto "Acme Corporation" moved both edges + `cik` onto the canonical node and removed the duplicate (`moved:2, dup_deleted:true`). Offline: repoint asserted against a recording fake store; +12 tests. |
+| **Phase 2 — interactive FIBO graph** (`a856ac3`) | `GraphExplorer.tsx` rebuilt: search (name/type/CIK/ticker/ISIN/FIBO class), domain filter chips w/ counts + colour legend, Force/Tree/Radial layouts (cose/breadthfirst/concentric — no dagre dep) + zoom + a custom SVG minimap (viewport rect + click-to-pan), a rich node inspector (FIBO grounding via `/fibo/ground`, extracted attributes, adjacent triples, lakehouse provenance), and a SPARQL box over the reasoned TBox (`POST /fibo/sparql`). | Live: search→NVIDIA; Radial re-layout; inspector showed `cmns-org:LegalEntity` + 8 adjacent triples; RiskFactor domain hidden; SPARQL returned 16 TBox rows. |
+| **Phase 3 — responsive UI** (`c8ca683`) | Off-canvas sidebar drawer + hamburger + dimmed scrim + close-on-nav (`navOpen` in `App.tsx`); topbar pills hide at 860/680px, title truncates then hides at 520px, firm selector narrows so the theme toggle never clips; fluid graph canvas (`clamp(360px,60vh,600px)`); new `menu` icon. | Live-verified at mobile (375), tablet (768), desktop (unchanged: full sidebar, all pills, no hamburger). |
+
+**FinanceOnto program status: Phase 1 (MDM core) + resolution reconcile + Phases 2–3 all complete.**
+`make ci` green (487 passed, 2 skipped); the client-name scrub guardrail grep = 0; neutral/fictional data only.
