@@ -21,6 +21,8 @@ dependencies = [
     "tenacity>=8.3",
     "python-multipart>=0.0.9",
     "jsonschema>=4.21",
+    "rdflib>=7.6.0",
+    "owlrl>=7.6.2",
 ]
 
 [project.optional-dependencies]

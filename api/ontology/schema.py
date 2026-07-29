@@ -82,6 +82,7 @@ class EntitySpec:
     layer: Layer
     description: str
     extractable: bool  # produced by the Extraction agent from text?
+    fibo_class: str | None = None  # default FIBO grounding (curie); see api/fibo/grounding.py
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,7 @@ class RelationSpec:
 ENTITY_SPECS: tuple[EntitySpec, ...] = (
     # -- L1: extractable from filings ------------------------------------------------------
     EntitySpec("Company", "name", ("aliases", "cik", "ticker", "lei", "country"), Layer.L1,
-               "A corporation / issuer.", True),
+               "A corporation / issuer.", True, fibo_class="cmns-org:LegalEntity"),
     EntitySpec("Person", "name", ("aliases",), Layer.L1,
                "A named individual (director, officer, alum).", True),
     EntitySpec("Product", "name", ("category",), Layer.L1,

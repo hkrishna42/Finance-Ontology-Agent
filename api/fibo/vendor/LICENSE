@@ -1,0 +1,16 @@
+The class IRIs and rdfs:subClassOf axioms in firm_fibo_slice.ttl are drawn verbatim from:
+
+  - The Financial Industry Business Ontology (FIBO), (c) EDM Council, Inc. and Object Management
+    Group, Inc. — https://spec.edmcouncil.org/fibo/ — published under the MIT License.
+  - OMG Commons Ontology Library — https://www.omg.org/spec/Commons/ — published under the MIT License.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the above copyright notice and this permission notice being included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.

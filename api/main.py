@@ -25,6 +25,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .config import get_settings
 from .contracts.events import EventType, make_event
+from .fibo.routes import router as fibo_router
 from .firms import graph_ops as firms_graph_ops
 from .firms import store as firms_store
 from .firms.routes import router as firms_router
@@ -108,6 +109,7 @@ app.include_router(resolve_router)
 app.include_router(ingest_router)
 app.include_router(firms_router)
 app.include_router(onboarding_router)
+app.include_router(fibo_router)
 
 
 @app.get("/health")

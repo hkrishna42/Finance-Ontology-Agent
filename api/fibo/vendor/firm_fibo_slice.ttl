@@ -1,0 +1,81 @@
+# Curated slice of the Financial Industry Business Ontology (FIBO) + OMG Commons.
+#
+# GENUINE OWL: every class IRI and every rdfs:subClassOf below is taken verbatim from the published
+# FIBO / OMG-Commons ontologies (spec.edmcouncil.org / omg.org) — verified against the source RDF.
+# This is a self-contained, import-free subset covering exactly the classes the platform grounds
+# extracted entities to, so it loads offline and reasons in-memory in milliseconds. A fuller vendored
+# FIBO (module owl:imports closure + a reasoned snapshot) can drop in behind the same api/fibo API.
+#
+# The owl:disjointWith axioms at the bottom are a curated (but semantically sound) addition that lets
+# the OWL-RL reasoner catch mis-grounding (e.g. a building typed as a legal entity) — see api/fibo/reasoner.py.
+#
+# FIBO and OMG Commons are published under the MIT License (EDM Council / OMG). See vendor/LICENSE.
+
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+@prefix cmns-org:        <https://www.omg.org/spec/Commons/Organizations/> .
+@prefix fibo-fnd-oac-own: <https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/> .
+@prefix fibo-fnd-plc-rp:  <https://spec.edmcouncil.org/fibo/ontology/FND/Places/RealProperty/> .
+@prefix fibo-fnd-agr-ctr: <https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/> .
+@prefix fibo-sec-sec-pls: <https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/Pools/> .
+@prefix fibo-sec-dbt-dbt: <https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/DebtInstruments/> .
+@prefix fibo-fbc-fi-fi:   <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-loan-ln-ln:  <https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/Loans/> .
+
+# --- Foundations: organizations / legal entities (OMG Commons, imported by FIBO BE) ----------
+cmns-org:Organization a owl:Class ;
+    rdfs:label "Organization" .
+cmns-org:LegalEntity a owl:Class ;
+    rdfs:subClassOf cmns-org:Organization ;
+    rdfs:label "Legal Entity" .
+
+# --- Foundations: ownership / assets --------------------------------------------------------
+fibo-fnd-oac-own:Asset a owl:Class ;
+    rdfs:label "Asset" .
+fibo-fnd-oac-own:PhysicalAsset a owl:Class ;
+    rdfs:subClassOf fibo-fnd-oac-own:Asset ;
+    rdfs:label "Physical Asset" .
+
+# --- Real property (FND/Places/RealProperty) ------------------------------------------------
+fibo-fnd-plc-rp:RealEstate a owl:Class ;
+    rdfs:subClassOf fibo-fnd-oac-own:Asset ;
+    rdfs:label "Real Estate" .
+fibo-fnd-plc-rp:RealProperty a owl:Class ;
+    rdfs:subClassOf fibo-fnd-oac-own:PhysicalAsset, fibo-fnd-plc-rp:RealEstate ;
+    rdfs:label "Real Property" .
+fibo-fnd-plc-rp:RealPropertyAppraisal a owl:Class ;
+    rdfs:label "Real Property Appraisal" .
+
+# --- Contracts (leases model as contracts) --------------------------------------------------
+fibo-fnd-agr-ctr:Contract a owl:Class ;
+    rdfs:label "Contract" .
+
+# --- Collective investment vehicles / funds (SEC/Securities/Pools) --------------------------
+fibo-sec-sec-pls:ManagedInvestment a owl:Class ;
+    rdfs:label "Managed Investment" .
+fibo-sec-sec-pls:CollectiveInvestmentVehicle a owl:Class ;
+    rdfs:subClassOf fibo-sec-sec-pls:ManagedInvestment ;
+    rdfs:label "Collective Investment Vehicle" .
+
+# --- Debt instruments / loans / issuers -----------------------------------------------------
+fibo-fbc-fi-fi:FinancialInstrument a owl:Class ;
+    rdfs:label "Financial Instrument" .
+fibo-fbc-fi-fi:DebtInstrument a owl:Class ;
+    rdfs:subClassOf fibo-fbc-fi-fi:FinancialInstrument ;
+    rdfs:label "Debt Instrument" .
+fibo-loan-ln-ln:Loan a owl:Class ;
+    rdfs:subClassOf fibo-fbc-fi-fi:DebtInstrument ;
+    rdfs:label "Loan" .
+fibo-sec-dbt-dbt:CorporateDebtIssuer a owl:Class ;
+    rdfs:subClassOf cmns-org:LegalEntity ;
+    rdfs:label "Corporate Debt Issuer" .
+
+# --- Disjointness (curated; sound) — a legal entity is not real property, a loan, or a fund;
+#     real property is not a loan or a fund; a loan is not a fund. Lets the reasoner flag
+#     mis-grounding. NOTE: LegalEntity is deliberately NOT disjoint with CollectiveInvestmentVehicle
+#     (a fund may be organized as a legal entity), to avoid false violations.
+cmns-org:LegalEntity owl:disjointWith fibo-fnd-plc-rp:RealProperty, fibo-loan-ln-ln:Loan .
+fibo-fnd-plc-rp:RealProperty owl:disjointWith fibo-loan-ln-ln:Loan, fibo-sec-sec-pls:CollectiveInvestmentVehicle .
+fibo-loan-ln-ln:Loan owl:disjointWith fibo-sec-sec-pls:CollectiveInvestmentVehicle .
