@@ -28,7 +28,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Bake BAAI/bge-small-en-v1.5 (384-d) into the image so full mode never blocks on a ~90MB download
 # at runtime. One warmup embed forces the full ONNX init + cache population.
-RUN /app/.venv/bin/python -c "from fastembed import TextEmbedding; \
+# HF_HUB_DISABLE_XET=1 forces HuggingFace's classic HTTPS download instead of the newer Xet/CAS
+# transfer backend, which fails behind some proxies/firewalls with
+#   "CAS Client Error: Request middleware error: File reconstruction error"
+# even when huggingface.co itself is reachable. The classic path uses the plain CDN that works there.
+RUN HF_HUB_DISABLE_XET=1 /app/.venv/bin/python -c "from fastembed import TextEmbedding; \
 list(TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed').embed(['warmup']))"
 
 # ---- runtime: slim, non-root -----------------------------------------------------------------
