@@ -69,6 +69,18 @@ ENV PATH="/app/.venv/bin:$PATH" \
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /opt/fastembed /opt/fastembed
 
+# Optional corporate-proxy CA trust. Drop your TLS-intercepting proxy's root CA (a .crt/.pem, e.g.
+# exported from the macOS System keychain) into docker/certs/ before building — it is gitignored and
+# never committed. If present it is appended to certifi's CA bundle so the container's HTTPS clients
+# (edgartools -> SEC EDGAR, GLEIF) verify the intercepted connections and "Add firm" search works
+# behind the proxy. No-op when docker/certs/ holds no cert.
+COPY docker/certs /tmp/corp-certs
+RUN bundle="$(/app/.venv/bin/python -c 'import certifi; print(certifi.where())')"; \
+    for f in /tmp/corp-certs/*.crt /tmp/corp-certs/*.pem; do \
+      if [ -e "$f" ]; then cat "$f" >> "$bundle"; echo "trusted corporate CA: $f"; fi; \
+    done; \
+    rm -rf /tmp/corp-certs
+
 # App source + the committed snapshot the container restores on first boot. (No .env is ever copied
 # — secrets arrive only via runtime env. fixtures/ and corpus/downloads/ are not needed at runtime.)
 COPY api/ ./api/

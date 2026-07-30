@@ -50,6 +50,14 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: firmontology
       SQLITE_PATH: /app/data/app.db
+      # SEC EDGAR requires a declared User-Agent ("Name email"); override in .env if you like.
+      EDGAR_USER_AGENT: ${EDGAR_USER_AGENT:-Firm Ontology Demo demo@example.com}
+      # Corporate-proxy passthrough (empty = ignored). Needed only for an EXPLICIT proxy; a transparent
+      # TLS-intercepting proxy needs just its root CA baked in via docker/certs/. NO_PROXY keeps the
+      # in-cluster neo4j hop off the proxy.
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-neo4j,localhost,127.0.0.1}
     volumes:
       - api_data:/app/data              # persist SQLite app-state across restarts
     depends_on:

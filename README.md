@@ -129,5 +129,18 @@ docker-compose*.yml   base (stub) · .full.yml (real Claude) · .prebuilt.yml (G
   org*; a subscription or another org's credit won't work. Keep test runs small.
 - **Stale/odd graph data** — `make reset` wipes the volumes; the next `make bootstrap` restores a
   clean snapshot.
+- **Behind a corporate TLS-intercepting proxy** (build fails at the fastembed step with
+  `CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain`, or **Add firm → search**
+  says "unavailable"): the proxy re-signs HTTPS with a private root CA the container doesn't trust.
+  The stub demo still builds (the model bake is non-fatal), but live SEC EDGAR / GLEIF calls and the
+  full-mode model download need that CA. Export your proxy's root CA and drop it into `docker/certs/`
+  (gitignored), then rebuild — it's baked into the image's trust store:
+  ```bash
+  # macOS: export every root your Mac already trusts (includes the proxy CA) into the drop folder
+  security find-certificate -a -p /Library/Keychains/System.keychain > docker/certs/corp-ca.pem
+  security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain >> docker/certs/corp-ca.pem
+  make bootstrap                      # rebuilds; "Add firm" search now works behind the proxy
+  ```
+  For an *explicit* (non-transparent) proxy, also set `HTTP_PROXY` / `HTTPS_PROXY` in `.env`.
 
 See the build plan for scope, the layered ontology model, and the demo script.

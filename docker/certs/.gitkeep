@@ -1,0 +1,1 @@
+# Drop your corporate proxy root CA here (e.g. docker/certs/corp-ca.crt) before `make bootstrap`.

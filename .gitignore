@@ -36,3 +36,7 @@ logs/
 
 # Harness (not part of the app repo)
 .claude/
+
+# Corporate proxy CA drop folder — never commit private/company certs (keep the .gitkeep).
+docker/certs/*
+!docker/certs/.gitkeep
