@@ -28,12 +28,23 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Bake BAAI/bge-small-en-v1.5 (384-d) into the image so full mode never blocks on a ~90MB download
 # at runtime. One warmup embed forces the full ONNX init + cache population.
+#
 # HF_HUB_DISABLE_XET=1 forces HuggingFace's classic HTTPS download instead of the newer Xet/CAS
-# transfer backend, which fails behind some proxies/firewalls with
-#   "CAS Client Error: Request middleware error: File reconstruction error"
-# even when huggingface.co itself is reachable. The classic path uses the plain CDN that works there.
-RUN HF_HUB_DISABLE_XET=1 /app/.venv/bin/python -c "from fastembed import TextEmbedding; \
-list(TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed').embed(['warmup']))"
+# backend (which fails behind some proxies with "CAS Client Error: ... File reconstruction error").
+#
+# The bake is NON-FATAL. On a network that blocks or TLS-intercepts huggingface.co the download can't
+# complete (e.g. a corporate MITM proxy -> "CERTIFICATE_VERIFY_FAILED: self-signed certificate in
+# certificate chain"). Stub mode uses the deterministic HashEmbedder and needs no model, so a failed
+# bake still yields a working stub image; full mode then needs the model (build on an un-intercepted
+# network, or add your proxy's root CA to the image's trust store). BAKE_FASTEMBED=0 skips the attempt.
+ARG BAKE_FASTEMBED=1
+RUN mkdir -p /opt/fastembed && \
+    if [ "$BAKE_FASTEMBED" = "1" ]; then \
+      HF_HUB_DISABLE_XET=1 /app/.venv/bin/python -c "from fastembed import TextEmbedding; list(TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed').embed(['warmup']))" \
+      || echo "WARN: fastembed model bake failed (network/proxy blocked huggingface.co) — the STUB demo still works; full mode needs the model."; \
+    else \
+      echo "BAKE_FASTEMBED=0 — skipping the fastembed model bake (stub-only image)."; \
+    fi
 
 # ---- runtime: slim, non-root -----------------------------------------------------------------
 FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS runtime
