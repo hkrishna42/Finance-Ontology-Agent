@@ -26,6 +26,18 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev --extra ingest
 
+# Optional corporate-proxy CA trust — MUST come before the model bake so the fastembed download
+# verifies behind a TLS-intercepting proxy. Drop your proxy's root CA (.crt/.pem, e.g. exported from
+# the macOS System keychain) into docker/certs/ (gitignored, never committed); it is appended to
+# certifi's CA bundle in the venv. The runtime stage inherits this venv, so SEC EDGAR / GLEIF calls
+# ("Add firm") verify too. No-op when docker/certs/ holds no cert.
+COPY docker/certs /tmp/corp-certs
+RUN bundle="$(/app/.venv/bin/python -c 'import certifi; print(certifi.where())')"; \
+    for f in /tmp/corp-certs/*.crt /tmp/corp-certs/*.pem; do \
+      if [ -e "$f" ]; then cat "$f" >> "$bundle"; echo "trusted corporate CA (build): $f"; fi; \
+    done; \
+    rm -rf /tmp/corp-certs
+
 # Bake BAAI/bge-small-en-v1.5 (384-d) into the image so full mode never blocks on a ~90MB download
 # at runtime. One warmup embed forces the full ONNX init + cache population.
 #
@@ -65,21 +77,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
     NEO4J_URI=bolt://neo4j:7687 \
     SQLITE_PATH=/app/data/app.db
 
-# venv + baked model from the builder.
+# venv (with any corporate CA already trusted in its certifi bundle) + baked model from the builder.
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /opt/fastembed /opt/fastembed
-
-# Optional corporate-proxy CA trust. Drop your TLS-intercepting proxy's root CA (a .crt/.pem, e.g.
-# exported from the macOS System keychain) into docker/certs/ before building — it is gitignored and
-# never committed. If present it is appended to certifi's CA bundle so the container's HTTPS clients
-# (edgartools -> SEC EDGAR, GLEIF) verify the intercepted connections and "Add firm" search works
-# behind the proxy. No-op when docker/certs/ holds no cert.
-COPY docker/certs /tmp/corp-certs
-RUN bundle="$(/app/.venv/bin/python -c 'import certifi; print(certifi.where())')"; \
-    for f in /tmp/corp-certs/*.crt /tmp/corp-certs/*.pem; do \
-      if [ -e "$f" ]; then cat "$f" >> "$bundle"; echo "trusted corporate CA: $f"; fi; \
-    done; \
-    rm -rf /tmp/corp-certs
 
 # App source + the committed snapshot the container restores on first boot. (No .env is ever copied
 # — secrets arrive only via runtime env. fixtures/ and corpus/downloads/ are not needed at runtime.)
