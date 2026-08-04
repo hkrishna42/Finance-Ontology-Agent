@@ -81,10 +81,13 @@ ENV PATH="/app/.venv/bin:$PATH" \
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /opt/fastembed /opt/fastembed
 
-# App source + the committed snapshot the container restores on first boot. (No .env is ever copied
-# — secrets arrive only via runtime env. fixtures/ and corpus/downloads/ are not needed at runtime.)
+# App source + the committed snapshot the container restores on first boot + fixtures/ (only ~92 KB:
+# the resolution spine `company_tickers*.json`, the CUSIP crosswalk, 13F golden) — needed at RUNTIME
+# for firm onboarding / resolution, not just tests. (No .env is ever copied — secrets arrive only via
+# runtime env; corpus/downloads/ is still not needed at runtime.)
 COPY api/ ./api/
 COPY corpus/snapshot/ ./corpus/snapshot/
+COPY fixtures/ ./fixtures/
 COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 
 RUN mkdir -p /app/data \
