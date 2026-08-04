@@ -141,6 +141,7 @@ docker-compose*.yml   base (stub) · .full.yml (real Claude) · .prebuilt.yml (G
   security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain >> docker/certs/corp-ca.pem
   make bootstrap                      # rebuilds; "Add firm" search now works behind the proxy
   ```
-  For an *explicit* (non-transparent) proxy, also set `HTTP_PROXY` / `HTTPS_PROXY` in `.env`.
+  For an *explicit* (non-transparent) proxy, add a `HTTP_PROXY`/`HTTPS_PROXY` to the `api` service via
+  a compose override — don't leave them empty (httpx rejects an empty proxy URL).
 
 See the build plan for scope, the layered ontology model, and the demo script.
