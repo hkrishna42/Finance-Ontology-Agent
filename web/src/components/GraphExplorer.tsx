@@ -2,27 +2,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import cytoscape from 'cytoscape'
 import type { Core, ElementDefinition, NodeSingular } from 'cytoscape'
 import { getGraph, groundLabel, runSparql } from '../api'
-import type { FiboGrounding, GraphData, GraphNode, SparqlResult } from '../types'
+import type { FiboGrounding, GraphData, GraphEdge, SparqlResult } from '../types'
 import { useLoaded } from '../lib/useLoaded'
 import { entityColor, EntityTag, PanelHead, Segmented, SourceBadge } from '../lib/ui'
 import { Icon } from '../lib/icons'
 import type { NavTarget } from '../App'
 import {
-  buildIndex, computeReveal, fiboClassOf, nodeMatches, relationCategory, RELATION_CATEGORIES,
-  type GraphIndex,
+  buildIndex, computeReveal, fiboGroupOf, FIBO_CLASS_COLORS, fmtWeight, nodeMatches,
+  relationCategory, RELATION_CATEGORIES, type GNode, type GraphIndex,
 } from '../lib/graphModel'
+import { fetchNeighbors } from '../lib/graphApi'
 import '../styles/graph-explorer.css'
 
 type LayoutMode = 'force' | 'tree' | 'radial'
 type ViewMode = 'focus' | 'full'
 
-/** Max neighbours revealed per expanded/focused hub before we stop (and tell the user to search).
- *  Keeps one 100+-holding fund from re-creating the hairball. */
+/** Max neighbours revealed per expanded/focused hub before we stop (and offer "show all"). Keeps one
+ *  100+-holding fund from re-creating the hairball; the reveal is the fund's LARGEST positions. */
 const EXPAND_CAP = 70
 /** Show every label when ≤ this many nodes are on screen … */
 const LABEL_LIMIT = 26
 /** … or once the user has zoomed in past this level (below it, only priority labels show). */
 const LABEL_ZOOM = 1.35
+/** The backend's default /graph node cap — at/above it the initial payload may be truncated, so
+ *  "show all" also fetches the rest of a hub's neighbourhood from /graph/neighbors. */
+const LOAD_LIMIT = 300
 
 function themeColors() {
   const s = getComputedStyle(document.documentElement)
@@ -63,9 +67,10 @@ function applyLod(cy: Core, count: number) {
   })
 }
 
-/** Structured attribute keys surfaced in the node inspector (a "FI / CW / …"-style domain code isn't
- *  in the data — domains are grouped by ontology entity type, the mockup's practical meaning). */
+/** Structured attribute keys surfaced in the node inspector. */
 const ATTR_KEYS = ['cik', 'lei', 'ticker', 'isin', 'country', 'series_id', 'category', 'norm', 'weight_pct']
+
+type AdjTriple = { rel: string; dir: '→' | '←'; other: string; otherType: string; weight: number | null }
 
 export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['focus']; themeKey: string; firm?: string | null }) {
   const { data, source, loading } = useLoaded<GraphData>(() => getGraph(firm ?? undefined), [firm])
@@ -82,60 +87,93 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
   const [layout, setLayout] = useState<LayoutMode>('force')
   const [view, setView] = useState<ViewMode>('focus')
   const [search, setSearch] = useState('')
-  const [hidden, setHidden] = useState<Set<string>>(new Set())      // hidden node types
+  const [hidden, setHidden] = useState<Set<string>>(new Set())      // hidden FIBO-class groups
   const [hiddenRels, setHiddenRels] = useState<Set<string>>(new Set()) // hidden relation categories
   const [expanded, setExpanded] = useState<Set<string>>(new Set())  // hub ids whose neighbourhood is shown
+  const [uncapped, setUncapped] = useState<Set<string>>(new Set())  // hubs revealed beyond the per-hub cap
   const [focusId, setFocusId] = useState<string | null>(null)       // a focused (drilled-in) node
-  const [selected, setSelected] = useState<GraphNode | null>(null)
+  const [selected, setSelected] = useState<GNode | null>(null)
+  const [extra, setExtra] = useState<{ nodes: GNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] })
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  // ---- merged graph (initial payload + any lazily-fetched neighbourhoods) --------------------
+  const graph = useMemo<GraphData>(() => {
+    if (!data) return { nodes: [], edges: [], paths: [] }
+    if (!extra.nodes.length && !extra.edges.length) return data
+    const nodeIds = new Set(data.nodes.map((n) => n.id))
+    const edgeIds = new Set(data.edges.map((e) => e.id))
+    const nodes = [...data.nodes]
+    for (const n of extra.nodes) if (!nodeIds.has(n.id)) { nodeIds.add(n.id); nodes.push(n) }
+    const edges = [...data.edges]
+    for (const e of extra.edges) if (!edgeIds.has(e.id)) { edgeIds.add(e.id); edges.push(e) }
+    return { nodes, edges, paths: data.paths }
+  }, [data, extra])
 
   // ---- derived model -------------------------------------------------------------------------
-  const index = useMemo<GraphIndex>(() => buildIndex(data), [data])
+  const index = useMemo<GraphIndex>(() => buildIndex(graph), [graph])
   const indexRef = useRef(index)
   useEffect(() => { indexRef.current = index }, [index])
 
   const elements = useMemo<ElementDefinition[]>(() => {
-    if (!data) return []
+    const gnodes = graph.nodes as GNode[]
+    if (!gnodes.length) return []
     // Stamp the entry-view (backbone) classes up front so the FIRST paint is already the legible
     // hubs-only view — never a flash of all ~300 nodes before the render effect collapses them.
     const inBackbone = (id: string) => index.hubs.has(id) || index.managers.has(id) || index.connectors.has(id)
-    const nodes = data.nodes.map((n) => {
+    const nodes = gnodes.map((n) => {
       const hub = index.hubs.has(n.id)
+      const g = fiboGroupOf(n)
+      const fcolor = g.grounded ? (FIBO_CLASS_COLORS[g.curie] ?? entityColor(n.type)) : entityColor(n.type)
       return {
-        data: { id: n.id, label: n.label, type: n.type, props: n.props ?? {}, hub },
+        data: {
+          id: n.id, label: n.label, type: n.type, props: n.props ?? {}, hub,
+          fibo_class: n.fibo_class ?? null, fibo_iri: n.fibo_iri ?? null, fibo_refined: n.fibo_refined ?? null,
+          fclass: g.key, fcolor,
+        },
         classes: [hub ? 'hub' : '', inBackbone(n.id) ? '' : 'collapsed'].filter(Boolean).join(' '),
       }
     })
-    const edges = data.edges.map((e) => {
+    const edges = graph.edges.map((e) => {
       const cat = relationCategory(e.type)
+      const w = fmtWeight((e.props ?? {}).weight_pct)
       const shown = inBackbone(e.source) && inBackbone(e.target)
       return {
-        data: { id: e.id, source: e.source, target: e.target, label: e.type, conf: e.confidence, cat: cat.key, catColor: cat.color },
+        data: {
+          id: e.id, source: e.source, target: e.target, rel: e.type,
+          label: w ? `${e.type} · ${w}` : e.type, conf: e.confidence, cat: cat.key, catColor: cat.color,
+        },
         classes: shown ? '' : 'collapsed',
       }
     })
     return [...nodes, ...edges]
-  }, [data, index])
+  }, [graph, index])
 
-  // Per-type counts (node-type legend + filter).
-  const typeCounts = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const n of data?.nodes ?? []) m.set(n.type, (m.get(n.type) ?? 0) + 1)
-    return [...m.entries()].sort((a, b) => b[1] - a[1])
-  }, [data])
+  // FIBO-class groups (real groundings) — the legend + node colouring + show/hide filter.
+  const fiboGroups = useMemo(() => {
+    const m = new Map<string, { key: string; label: string; curie: string; grounded: boolean; color: string; count: number }>()
+    for (const n of graph.nodes as GNode[]) {
+      const g = fiboGroupOf(n)
+      const cur = m.get(g.key)
+      if (cur) { cur.count++; continue }
+      const color = g.grounded ? (FIBO_CLASS_COLORS[g.curie] ?? entityColor(n.type)) : entityColor(n.type)
+      m.set(g.key, { ...g, color, count: 1 })
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count)
+  }, [graph])
 
   // Per-relation-category counts (relationship legend + filter).
   const relCounts = useMemo(() => {
     const m = new Map<string, number>()
-    for (const e of data?.edges ?? []) { const k = relationCategory(e.type).key; m.set(k, (m.get(k) ?? 0) + 1) }
+    for (const e of graph.edges) { const k = relationCategory(e.type).key; m.set(k, (m.get(k) ?? 0) + 1) }
     return m
-  }, [data])
+  }, [graph])
 
-  // Search matches over the WHOLE graph (name / type / CIK / ticker / ISIN / LEI …), not just what's drawn.
+  // Search matches over the WHOLE graph (name / type / FIBO class / CIK / ticker / ISIN / LEI …).
   const searchMatchIds = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q || !data) return [] as string[]
-    return data.nodes.filter((n) => nodeMatches(n, q)).map((n) => n.id)
-  }, [search, data])
+    if (!q) return [] as string[]
+    return (graph.nodes as GNode[]).filter((n) => nodeMatches(n, q)).map((n) => n.id)
+  }, [search, graph])
   const searchHitSet = useMemo(() => new Set(searchMatchIds), [searchMatchIds])
 
   // Nodes we explicitly highlight (a focused node / a navigated node / a named path).
@@ -143,9 +181,9 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
     const s = new Set<string>()
     if (focusId) s.add(focusId)
     if (focus?.node_id) s.add(focus.node_id)
-    if (activePath !== null && data?.paths?.[activePath]) for (const id of data.paths[activePath].node_ids) s.add(id)
+    if (activePath !== null && graph.paths?.[activePath]) for (const id of graph.paths[activePath].node_ids) s.add(id)
     return s
-  }, [focusId, focus, activePath, data])
+  }, [focusId, focus, activePath, graph])
 
   // The full set of "attention" nodes (highlights + search hits) that drive reveal + dimming.
   const focusSet = useMemo(() => {
@@ -156,8 +194,8 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
 
   // Which nodes make up the current view (backbone + expanded/focused neighbourhoods; null ⇒ all).
   const reveal = useMemo(
-    () => computeReveal(index, { full: view === 'full', expanded, focus: focusSet, cap: EXPAND_CAP }),
-    [index, view, expanded, focusSet],
+    () => computeReveal(index, { full: view === 'full', expanded, focus: focusSet, cap: EXPAND_CAP, uncapped }),
+    [index, view, expanded, focusSet, uncapped],
   )
 
   // When something is focused/searched, everything outside that neighbourhood dims (bright set).
@@ -168,16 +206,16 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
     return s
   }, [focusSet, index])
 
-  const isVisibleId = useCallback((id: string, type: string) =>
-    (reveal.ids === null || reveal.ids.has(id)) && !hidden.has(type), [reveal, hidden])
+  const isVisibleId = useCallback((id: string, groupKey: string) =>
+    (reveal.ids === null || reveal.ids.has(id)) && !hidden.has(groupKey), [reveal, hidden])
 
   const visibleCount = useMemo(() => {
-    if (!data) return 0
-    if (reveal.ids === null) return data.nodes.filter((n) => !hidden.has(n.type)).length
+    const gnodes = graph.nodes as GNode[]
+    if (reveal.ids === null) return gnodes.filter((n) => !hidden.has(fiboGroupOf(n).key)).length
     let c = 0
-    for (const id of reveal.ids) { const n = index.byId.get(id); if (n && !hidden.has(n.type)) c++ }
+    for (const id of reveal.ids) { const n = index.byId.get(id); if (n && !hidden.has(fiboGroupOf(n).key)) c++ }
     return c
-  }, [reveal, data, hidden, index])
+  }, [reveal, graph, hidden, index])
 
   // ---- minimap: draw visible node dots + a viewport rectangle into a small canvas ----
   const drawMini = useCallback(() => {
@@ -200,7 +238,7 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
     const my = (y: number) => oy + (y - bb.y1) * s
     shown.forEach((n) => {
       const p = n.position()
-      ctx.fillStyle = entityColor(n.data('type'))
+      ctx.fillStyle = n.data('fcolor') || entityColor(n.data('type'))
       ctx.beginPath()
       ctx.arc(mx(p.x), my(p.y), n.hasClass('hub') ? 2.6 : 1.7, 0, 2 * Math.PI)
       ctx.fill()
@@ -237,7 +275,7 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
         {
           selector: 'node',
           style: {
-            'background-color': (ele: NodeSingular) => entityColor(ele.data('type')),
+            'background-color': (ele: NodeSingular) => ele.data('fcolor') || entityColor(ele.data('type')),
             label: 'data(label)', color: c.text, 'font-size': '9px', 'font-weight': 600,
             'text-valign': 'bottom', 'text-margin-y': 3, 'text-max-width': '110px', 'text-wrap': 'ellipsis',
             'text-outline-width': 2, 'text-outline-color': c.surface, 'text-outline-opacity': 1,
@@ -282,7 +320,10 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
     cy.on('tap', 'node', (evt) => {
       const n = evt.target as NodeSingular
       const id = n.id()
-      setSelected({ id, type: n.data('type'), label: n.data('label'), props: n.data('props') })
+      setSelected({
+        id, type: n.data('type'), label: n.data('label'), props: n.data('props'),
+        fibo_class: n.data('fibo_class'), fibo_iri: n.data('fibo_iri'), fibo_refined: n.data('fibo_refined'),
+      })
       if (indexRef.current.hubs.has(id)) {
         // A hub: expand / collapse its neighbourhood (no dimming — you're surveying, not tracing).
         setFocusId(null)
@@ -328,8 +369,8 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
 
     cy.batch(() => {
       cy.nodes().forEach((n) => {
-        const id = n.id(), type = n.data('type') as string
-        const vis = isVisibleId(id, type)
+        const id = n.id()
+        const vis = isVisibleId(id, n.data('fclass') as string)
         n.toggleClass('collapsed', !vis)
         n.toggleClass('hub', index.hubs.has(id))
         if (!vis) { n.removeClass('faded hl hit'); return }
@@ -393,7 +434,10 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
   useEffect(() => {
     if (!focus?.node_id) return
     const n = index.byId.get(focus.node_id)
-    if (n) { setFocusId(n.id); setSelected({ id: n.id, type: n.type, label: n.label, props: n.props }) }
+    if (n) {
+      setFocusId(n.id)
+      setSelected({ id: n.id, type: n.type, label: n.label, props: n.props, fibo_class: n.fibo_class, fibo_iri: n.fibo_iri, fibo_refined: n.fibo_refined })
+    }
   }, [focus, index])
 
   const zoomBy = (f: number) => { const cy = cyRef.current; if (cy) cy.zoom({ level: cy.zoom() * f, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } }) }
@@ -405,26 +449,47 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
   }
   const resetView = () => {
     setActivePath(null); setSearch(''); setHidden(new Set()); setHiddenRels(new Set())
-    setExpanded(new Set()); setFocusId(null); setSelected(null); setView('focus')
+    setExpanded(new Set()); setUncapped(new Set()); setFocusId(null); setSelected(null); setView('focus')
+    setExtra({ nodes: [], edges: [] })
   }
 
-  const toggleType = (t: string) => setHidden((prev) => { const next = new Set(prev); next.has(t) ? next.delete(t) : next.add(t); return next })
+  const toggleGroup = (k: string) => setHidden((prev) => { const next = new Set(prev); next.has(k) ? next.delete(k) : next.add(k); return next })
   const toggleRel = (k: string) => setHiddenRels((prev) => { const next = new Set(prev); next.has(k) ? next.delete(k) : next.add(k); return next })
 
-  // Adjacent triples for the inspector, resolved from the loaded graph edges.
-  const adjacency = useMemo(() => {
-    if (!selected || !data) return [] as { rel: string; dir: '→' | '←'; other: string; otherType: string }[]
-    const byId = new Map(data.nodes.map((n) => [n.id, n]))
-    const out: { rel: string; dir: '→' | '←'; other: string; otherType: string }[] = []
-    for (const e of data.edges) {
-      if (e.source === selected.id) { const o = byId.get(e.target); out.push({ rel: e.type, dir: '→', other: o?.label ?? e.target, otherType: o?.type ?? '' }) }
-      else if (e.target === selected.id) { const o = byId.get(e.source); out.push({ rel: e.type, dir: '←', other: o?.label ?? e.source, otherType: o?.type ?? '' }) }
+  // "Show all": reveal a capped hub's remaining LOADED holdings, and — when the initial payload was
+  // truncated (large firm) — lazily fetch the rest of its neighbourhood from /graph/neighbors.
+  const baseCount = data?.nodes.length ?? 0
+  const truncated = baseCount >= LOAD_LIMIT
+  const showAllCapped = async () => {
+    const ids = reveal.capped.map((c) => c.id)
+    if (!ids.length) return
+    setUncapped((prev) => new Set([...prev, ...ids]))
+    if (!truncated) return
+    setLoadingMore(true)
+    const results = await Promise.all(ids.map((id) => fetchNeighbors(id, { limit: 500, minConfidence: minConf })))
+    setLoadingMore(false)
+    const ns: GNode[] = [], es: GraphEdge[] = []
+    for (const r of results) if (r) { ns.push(...(r.nodes as GNode[])); es.push(...r.edges) }
+    if (ns.length || es.length) setExtra((prev) => ({ nodes: [...prev.nodes, ...ns], edges: [...prev.edges, ...es] }))
+  }
+
+  // Adjacent triples for the inspector (largest holdings first), resolved from the loaded graph edges.
+  const adjacency = useMemo<AdjTriple[]>(() => {
+    if (!selected) return []
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]))
+    const out: AdjTriple[] = []
+    for (const e of graph.edges) {
+      const w = Number((e.props ?? {}).weight_pct)
+      const weight = Number.isFinite(w) ? w : null
+      if (e.source === selected.id) { const o = byId.get(e.target); out.push({ rel: e.type, dir: '→', other: o?.label ?? e.target, otherType: o?.type ?? '', weight }) }
+      else if (e.target === selected.id) { const o = byId.get(e.source); out.push({ rel: e.type, dir: '←', other: o?.label ?? e.source, otherType: o?.type ?? '', weight }) }
     }
+    out.sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1))
     return out.slice(0, 40)
-  }, [selected, data])
+  }, [selected, graph])
 
   const relLegend = RELATION_CATEGORIES.filter((c) => (relCounts.get(c.key) ?? 0) > 0)
-  const hasNodes = (data?.nodes.length ?? 0) > 0
+  const hasNodes = graph.nodes.length > 0
   const entryView = view === 'focus' && !focusId && !search && expanded.size === 0 && activePath === null
   const focusNode = focusId ? index.byId.get(focusId) : null
   const expandedLabel = expanded.size === 1
@@ -485,14 +550,15 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
                 </button>
               )}
               {reveal.capped.length > 0 && (
-                <span className="gx-chip" title="Deep neighbourhoods are capped for legibility — search to reach any specific node.">
-                  <Icon name="info" size={12} />
+                <button className="gx-chip gx-chip-btn" onClick={showAllCapped} disabled={loadingMore} title="Reveal the rest of this fund's holdings (largest positions are already shown)">
+                  <Icon name={loadingMore ? 'refresh' : 'ingest'} size={12} />
                   <span className="gx-chip-name">
-                    {reveal.capped.length === 1
-                      ? `Top ${reveal.capped[0].shown} of ${reveal.capped[0].total} — search for more`
-                      : `Top ${EXPAND_CAP} per hub — search for more`}
+                    {loadingMore ? 'Loading…'
+                      : reveal.capped.length === 1
+                        ? `Top ${reveal.capped[0].shown} of ${reveal.capped[0].total} by weight — show all`
+                        : `Top ${EXPAND_CAP} per hub by weight — show all`}
                   </span>
-                </span>
+                </button>
               )}
             </div>
           )}
@@ -521,22 +587,21 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
 
           <div className="card card-pad">
             <div className="gx-card-head">
-              <strong>Node types</strong>
+              <strong>FIBO classes</strong>
               {hidden.size > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setHidden(new Set())}>show all</button>}
             </div>
-            <p className="gx-card-sub">Coloured by FIBO class. Click a type to hide it.</p>
+            <p className="gx-card-sub">Nodes coloured by their deterministic FIBO grounding. Click a class to hide it.</p>
             <div className="gx-legend">
-              {typeCounts.map(([t, n]) => {
-                const off = hidden.has(t)
-                const fibo = fiboClassOf(t)
+              {fiboGroups.map((g) => {
+                const off = hidden.has(g.key)
                 return (
-                  <button key={t} className={`gx-legend-row ${off ? 'off' : ''}`} onClick={() => toggleType(t)} title={off ? 'Show' : 'Hide'}>
-                    <span className="gx-legend-swatch" style={{ background: entityColor(t) }} />
+                  <button key={g.key} className={`gx-legend-row ${off ? 'off' : ''}`} onClick={() => toggleGroup(g.key)} title={off ? 'Show' : 'Hide'}>
+                    <span className="gx-legend-swatch" style={{ background: g.color }} />
                     <span className="gx-legend-txt">
-                      <span className="gx-legend-name">{fibo.label}</span>
-                      <span className="gx-legend-curie">{fibo.curie || t}</span>
+                      <span className="gx-legend-name">{g.label}</span>
+                      <span className="gx-legend-curie">{g.grounded ? g.curie : 'ungrounded'}</span>
                     </span>
-                    <span className="gx-legend-count">{n}</span>
+                    <span className="gx-legend-count">{g.count}</span>
                   </button>
                 )
               })}
@@ -549,7 +614,7 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
                 <strong>Relationships</strong>
                 {hiddenRels.size > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setHiddenRels(new Set())}>show all</button>}
               </div>
-              <p className="gx-card-sub">FIBO-aligned edge categories. Labels show on hover or focus; click to hide a category.</p>
+              <p className="gx-card-sub">FIBO-aligned edge categories. Labels (with holding weight) show on hover or focus; click to hide a category.</p>
               <div className="gx-legend">
                 {relLegend.map((c) => {
                   const off = hiddenRels.has(c.key)
@@ -581,11 +646,11 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
             </p>
           </div>
 
-          {(data?.paths?.length ?? 0) > 0 && (
+          {(graph.paths?.length ?? 0) > 0 && (
             <div className="card card-pad">
               <strong style={{ fontSize: 13 }}>Highlight a path</strong>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
-                {data?.paths?.map((p, i) => (
+                {graph.paths?.map((p, i) => (
                   <button key={i} className={`btn btn-sm ${activePath === i ? 'btn-primary' : ''}`} style={{ justifyContent: 'flex-start' }} onClick={() => setActivePath(activePath === i ? null : i)}>
                     <Icon name="impact" size={13} /> {p.label}
                   </button>
@@ -607,8 +672,8 @@ export function GraphExplorer({ focus, themeKey, firm }: { focus?: NavTarget['fo
 // ---- Node inspector: FIBO grounding + attributes + adjacent triples + lakehouse provenance ----
 
 function NodeInspector({ node, adjacency, onClose }: {
-  node: GraphNode
-  adjacency: { rel: string; dir: '→' | '←'; other: string; otherType: string }[]
+  node: GNode
+  adjacency: AdjTriple[]
   onClose: () => void
 }) {
   const props = (node.props ?? {}) as Record<string, unknown>
@@ -622,8 +687,12 @@ function NodeInspector({ node, adjacency, onClose }: {
     return () => { alive = false }
   }, [node.id, node.type]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Prefer a per-node stamped grounding (MDM/ingest nodes carry it); else the on-demand label default.
-  const curie = (typeof props.fibo_class === 'string' && props.fibo_class) || fibo?.curie || null
+  // Prefer the backend's stamped, real grounding on the node; fall back to any props copy, then the
+  // on-demand label grounding (for ungrounded/legacy nodes).
+  const stamped = typeof node.fibo_class === 'string' && node.fibo_class ? node.fibo_class : null
+  const curie = stamped || (typeof props.fibo_class === 'string' && props.fibo_class) || fibo?.curie || null
+  const iri = (typeof node.fibo_iri === 'string' && node.fibo_iri) || undefined
+  const refined = node.fibo_refined ?? fibo?.refined
   const reasoningValid = props.reasoning_valid
   const lhTable = typeof props.lakehouse_table === 'string' ? props.lakehouse_table : null
   const lhPk = typeof props.lakehouse_pk === 'string' ? props.lakehouse_pk : null
@@ -644,11 +713,11 @@ function NodeInspector({ node, adjacency, onClose }: {
         {curie ? (
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             <span className="pill good"><Icon name="check" size={12} /> FIBO grounded</span>
-            <code className="fibo-curie">{curie}</code>
+            <code className="fibo-curie" title={iri}>{curie}</code>
             {reasoningValid !== undefined && (
               <span className={`pill ${reasoningValid ? 'good' : 'warn'}`}>{reasoningValid ? 'reasoning valid' : 'violation'}</span>
             )}
-            {fibo?.refined && <span className="pill">refined</span>}
+            {refined && <span className="pill">refined</span>}
           </div>
         ) : (
           <span className="faint" style={{ fontSize: 12 }}>Not grounded to a FIBO class.</span>
@@ -682,6 +751,7 @@ function NodeInspector({ node, adjacency, onClose }: {
                 <span className="rel">{a.dir === '→' ? '' : '← '}{a.rel}{a.dir === '→' ? ' →' : ''}</span>
                 <span className="legend-dot" style={{ background: entityColor(a.otherType) }} />
                 <span className="other">{a.other}</span>
+                {a.weight != null && <span className="insp-w">{fmtWeight(a.weight)}</span>}
               </div>
             ))}
           </div>
