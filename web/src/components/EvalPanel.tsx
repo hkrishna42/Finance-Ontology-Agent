@@ -16,6 +16,15 @@ export function EvalPanel() {
       />
       {loading ? (
         <div className="loading"><span className="spinner" />Loading…</div>
+      ) : (data ?? []).length === 0 ? (
+        <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 24px' }}>
+          <div className="brand-mark" style={{ width: 34, height: 34, borderRadius: 9, margin: '0 auto 12px', background: 'linear-gradient(135deg,#3b5bdb,#7048e8)' }}><Icon name="eval" size={18} /></div>
+          <strong style={{ fontSize: 14 }}>No eval runs yet</strong>
+          <p className="faint" style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 460, margin: '8px auto 0' }}>
+            The offline eval harness has not reported any gate results. Once a run lands, precision/recall,
+            grounding faithfulness, vector-vs-graph, and entitlement-leakage cards appear here.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-2">
           {(data ?? []).map((c) => (

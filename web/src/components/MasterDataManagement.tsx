@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getMdmEntities, getMdmSources, postMdmMatch, postMdmMerge } from '../api'
 import type { GoldenRecord, MdmEntity, MdmMatch, MdmSources, SurvivorshipDecision } from '../types'
-import { PanelHead } from '../lib/ui'
+import { PanelHead, SourceBadge } from '../lib/ui'
 import { Icon } from '../lib/icons'
 
 const AGENTS = [
@@ -35,11 +35,17 @@ export function MasterDataManagement() {
     setBusy(false)
   }
 
+  // Graph-derived entities have no bronze source records — the multi-source survivorship wizard
+  // (source records → match → merge → golden) doesn't apply. Detect via the backend discriminator,
+  // falling back to an empty /sources response for resilience.
+  const isGraph = selected?.source === 'graph' || (!!sources && sources.sources.length === 0)
+
   return (
     <div>
       <PanelHead
         title="Master Data Management"
         sub="Multi-source entity resolution → a single, auditable golden record. The FIBO ontology supplies the shared class and matching key; attribute-level survivorship rules reconcile conflicting source systems into one canonical record — the single source of truth."
+        right={!loading && entities.length > 0 ? <SourceBadge source="live" /> : undefined}
       />
 
       <div className="grid grid-4" style={{ marginBottom: 20 }}>
@@ -68,10 +74,16 @@ export function MasterDataManagement() {
                              borderColor: selected?.entity_id === e.entity_id ? 'var(--accent)' : undefined }}
                     onClick={() => void select(e)}
                   >
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{e.display_name}</div>
-                    {e.fibo_curie && <div><FiboBadge curie={e.fibo_curie} /></div>}
+                    <div className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                      <span className="tag" style={{ flex: 'none' }}>{e.entity_type}</span>
+                      <ProvenanceBadge source={e.source} />
+                      {e.fibo_curie && <FiboBadge curie={e.fibo_curie} />}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{e.display_name}</div>
                     <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-                      {e.n_sources} source systems · {e.n_attributes} attributes reconciled
+                      {e.source === 'graph'
+                        ? <>graph-derived{typeof e.n_mentions === 'number' ? ` · ${e.n_mentions} mention${e.n_mentions === 1 ? '' : 's'}` : ''} · {e.n_attributes} attributes</>
+                        : <>{e.n_sources} source {e.n_sources === 1 ? 'system' : 'systems'} · {e.n_attributes} attributes reconciled</>}
                     </div>
                   </button>
                 ))}
@@ -80,10 +92,28 @@ export function MasterDataManagement() {
         )}
       </Section>
 
-      {selected && sources && (
+      {selected && sources && isGraph && (
+        <Section n={2} title="Provenance">
+          <div className="card card-pad">
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+              <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="graph" size={15} /></span>
+              <strong style={{ fontSize: 13 }}>Graph-derived entity</strong>
+            </div>
+            <div className="faint" style={{ fontSize: 13, lineHeight: 1.6 }}>
+              This entity’s provenance is the knowledge graph
+              {typeof selected.n_mentions === 'number'
+                ? ` — ${selected.n_mentions} mention${selected.n_mentions === 1 ? '' : 's'} across ingested documents`
+                : ''}. It has no bronze source-system records, so multi-source survivorship reconciliation
+              (which applies to lakehouse-seeded master entities) is not run for it.
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {selected && sources && !isGraph && (
         <Section n={2} title={`Source-system records — ${sources.sources.length} systems ingested`}>
           <div className="table-wrap">
-            <div className="grid" style={{ gridTemplateColumns: `repeat(${sources.sources.length}, minmax(210px, 1fr))`, gap: 12 }}>
+            <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(210px, 100%), 1fr))', gap: 12 }}>
               {sources.sources.map((s) => (
                 <div key={s.system} className="card card-pad" style={{ padding: '12px 14px' }}>
                   <div className="row" style={{ justifyContent: 'space-between', gap: 6 }}>
@@ -106,14 +136,14 @@ export function MasterDataManagement() {
 
       {selected && match && (
         <Section n={3} title="Ontology-driven entity matching (blocking & scoring)">
-          <div className="card card-pad" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 18, alignItems: 'center' }}>
-            <div>
+          <div className="card card-pad" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 18, alignItems: 'center' }}>
+            <div style={{ minWidth: 0 }}>
               <SectionLabel>Matching key</SectionLabel>
-              <div style={{ fontSize: 13.5, marginTop: 4 }}>{match.blocking_keys.join(' + ')}</div>
+              <div style={{ fontSize: 13.5, marginTop: 4, wordBreak: 'break-word' }}>{match.blocking_keys.join(' + ')}</div>
             </div>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <SectionLabel>Method</SectionLabel>
-              <div className="faint" style={{ fontSize: 12.5, marginTop: 4 }}>{match.method}</div>
+              <div className="faint" style={{ fontSize: 12.5, marginTop: 4, wordBreak: 'break-word' }}>{match.method}</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <SectionLabel>Match confidence</SectionLabel>
@@ -124,13 +154,16 @@ export function MasterDataManagement() {
           </div>
           {match.resolved && (
             <div className="pill good" style={{ marginTop: 10 }}>
-              <Icon name="check" size={13} />Resolved — all {match.matched_record_ids.length} source records confirmed as the same entity
+              <Icon name="check" size={13} />
+              {isGraph
+                ? 'FIBO-grounded & consistent'
+                : `Resolved — all ${match.matched_record_ids.length} source records confirmed as the same entity`}
             </div>
           )}
         </Section>
       )}
 
-      {selected && !merged && (
+      {selected && !merged && !isGraph && (
         <div style={{ textAlign: 'center', margin: '20px 0 6px' }}>
           <button className="btn btn-primary" onClick={() => void runMerge()} disabled={busy || !match?.resolved}>
             {busy ? <><span className="spinner" />Running match &amp; merge…</> : <><Icon name="merge" size={14} />Run Match &amp; Merge</>}
@@ -209,8 +242,28 @@ function GoldenCard({ golden }: { golden: GoldenRecord }) {
 
 function FiboBadge({ curie, grounded }: { curie: string; grounded?: boolean }) {
   return (
-    <span className="pill" style={{ fontSize: 10.5, background: 'var(--good-bg)', color: 'var(--good)', marginTop: grounded ? 0 : 6, display: 'inline-flex' }} title="FIBO OWL class">
-      {grounded ? 'FIBO GROUNDED · ' : ''}<span className="mono">{curie}</span>
+    <span className="pill" style={{ fontSize: 10.5, background: 'var(--good-bg)', color: 'var(--good)', display: 'inline-flex', maxWidth: '100%', minWidth: 0 }} title={`FIBO OWL class · ${curie}`}>
+      {grounded ? 'FIBO GROUNDED · ' : ''}<span className="mono nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{curie}</span>
+    </span>
+  )
+}
+
+/** Small provenance chip distinguishing seeded lakehouse master entities (full survivorship wizard)
+ *  from graph-derived entities (no source records to reconcile). */
+function ProvenanceBadge({ source }: { source: MdmEntity['source'] }) {
+  const graph = source === 'graph'
+  return (
+    <span
+      className="tag"
+      style={{
+        flex: 'none',
+        color: graph ? 'var(--accent)' : 'var(--text-muted)',
+        background: graph ? 'var(--accent-weak)' : 'var(--surface-2)',
+        borderColor: graph ? 'var(--accent-border)' : 'var(--border)',
+      }}
+      title={graph ? 'Derived from the knowledge graph' : 'Seeded master entity with bronze source records'}
+    >
+      {graph ? 'graph-derived' : 'lakehouse'}
     </span>
   )
 }

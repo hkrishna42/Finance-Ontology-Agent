@@ -188,10 +188,12 @@ export interface ProvisionalEntity {
   label: EntityLabel
   name: string
   aliases: string[]
-  span: string
+  /** Verbatim source sentence, or null/"" when the live resolver has no grounded span. */
+  span: string | null
   doc_id: string
   chunk_id: string
-  confidence: number
+  /** Extractor confidence 0..1, or null when the resolver has no real score (never render as "0.00"). */
+  confidence: number | null
   candidates: ResolutionCandidate[]
   status?: 'pending' | 'merged' | 'kept_new' | 'rejected'
 }
@@ -418,6 +420,11 @@ export interface MdmEntity {
   n_attributes: number
   fibo_curie: string | null
   fibo_class: string | null
+  /** Provenance: 'lakehouse' = seeded master entity with bronze source records (full survivorship
+   *  wizard applies); 'graph' = derived from the knowledge graph, no source records to reconcile. */
+  source: 'graph' | 'lakehouse'
+  /** Graph-derived entities only: how many mentions across ingested documents back this entity. */
+  n_mentions?: number
 }
 
 export interface MdmSource {

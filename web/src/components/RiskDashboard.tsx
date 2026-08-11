@@ -8,6 +8,22 @@ import { Icon } from '../lib/icons'
 
 const SEV = ['transparent', 'rgba(232,89,12,0.22)', 'rgba(232,89,12,0.55)', 'rgba(201,42,42,0.82)']
 const prettyCat = (c: string) => c.replace(/_/g, ' ')
+// Real N-PORT holdings run into the hundreds per fund — chart only the largest by weight so the bar
+// chart stays a readable fixed height rather than a multi-thousand-pixel scroll.
+const TOP_HOLDINGS = 15
+// Keep fund-switcher buttons + KPI labels compact: drop the neutral "Demo" prefix / "Fund" suffix,
+// then bound the length (the full name is always available via the element's title tooltip).
+const fundShort = (f: string) => {
+  const s = f.replace(/^Demo\s+/i, '').replace(/\s+Fund$/i, '').trim() || f
+  return s.length > 24 ? `${s.slice(0, 23)}…` : s
+}
+// Many issuers (govvies, money-market sweeps) have no ticker — fall back to a truncated issuer name
+// so the chart's Y axis never renders blank labels.
+const axisLabel = (ticker: string | null | undefined, issuer: string): string => {
+  if (ticker && ticker.trim()) return ticker.trim()
+  const t = issuer.replace(/\s+/g, ' ').trim()
+  return t.length > 16 ? `${t.slice(0, 15)}…` : t
+}
 
 export function RiskDashboard() {
   const { data, source, loading } = useLoaded<RiskData>(getRisk)
@@ -16,9 +32,17 @@ export function RiskDashboard() {
 
   const funds = useMemo(() => (data ? [...new Set(data.concentration.map((c) => c.fund))] : []), [data])
   const activeFund = funds[fund]
-  const holdings = useMemo(
-    () => (data ? data.concentration.filter((c) => c.fund === activeFund).sort((a, b) => b.weight_pct - a.weight_pct) : []),
+  const fundRows = useMemo(
+    () => (data ? data.concentration.filter((c) => c.fund === activeFund) : []),
     [data, activeFund],
+  )
+  // Chart the top-N holdings by weight, each with a guaranteed non-empty axis label (ticker or issuer).
+  const holdings = useMemo(
+    () => [...fundRows]
+      .sort((a, b) => b.weight_pct - a.weight_pct)
+      .slice(0, TOP_HOLDINGS)
+      .map((c) => ({ ...c, label: axisLabel(c.ticker, c.issuer) })),
+    [fundRows],
   )
 
   if (loading) return <div className="loading"><span className="spinner" />Computing risk…</div>
@@ -36,7 +60,7 @@ export function RiskDashboard() {
       <div className="grid grid-4" style={{ marginBottom: 18 }}>
         {data.hhi.map((h) => (
           <div className="stat" key={h.fund}>
-            <div className="stat-label">HHI · {h.fund.replace('Demo ', '')}</div>
+            <div className="stat-label" title={h.fund}>HHI · {fundShort(h.fund)}</div>
             <div className="stat-value">{h.hhi} <small>top {pct(h.top_weight_pct)}</small></div>
             <div className="stat-foot">{h.interpretation.split('.')[0]}.</div>
           </div>
@@ -56,19 +80,26 @@ export function RiskDashboard() {
       <div className="grid grid-2">
         {/* Concentration chart + table */}
         <div className="card">
-          <div className="card-head" style={{ justifyContent: 'space-between' }}>
-            <div><h3>Concentration by issuer</h3><div className="card-head-sub">disclosed holdings, N-PORT as of 2026-05-31</div></div>
-            <div className="segmented">
-              {funds.map((f, i) => (
-                <button key={f} className={i === fund ? 'active' : ''} onClick={() => setFund(i)}>{f.replace('Demo ', '').replace(' Fund', '')}</button>
-              ))}
+          <div className="card-head" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <h3>Concentration by issuer</h3>
+              <div className="card-head-sub">
+                {fundRows.length > holdings.length ? `top ${holdings.length} of ${fundRows.length} disclosed holdings by weight` : `${fundRows.length} disclosed holding${fundRows.length === 1 ? '' : 's'} by weight`}
+              </div>
+            </div>
+            <div className="seg-scroll">
+              <div className="segmented">
+                {funds.map((f, i) => (
+                  <button key={f} className={i === fund ? 'active' : ''} onClick={() => setFund(i)} title={f}>{fundShort(f)}</button>
+                ))}
+              </div>
             </div>
           </div>
           <div className="card-pad">
             <ResponsiveContainer width="100%" height={Math.max(200, holdings.length * 30)}>
               <BarChart data={holdings} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
                 <XAxis type="number" domain={[0, 'dataMax']} unit="%" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="ticker" width={52} tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="label" width={92} tick={{ fontSize: 11 }} interval={0} />
                 <Tooltip
                   cursor={{ fill: 'var(--accent-weak)' }}
                   contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text)' }}
@@ -111,23 +142,31 @@ export function RiskDashboard() {
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head"><h3>Risk-factor exposure heatmap</h3><span className="card-head-sub">held issuers × RiskCategory · darker = stronger disclosed exposure</span></div>
         <div className="card-pad">
-          <div className="table-wrap">
-            <div className="heatmap" style={{ gridTemplateColumns: `180px repeat(${data.heatmap.categories.length}, minmax(74px, 1fr))`, minWidth: 640 }}>
-              <div />
-              {data.heatmap.categories.map((c) => <div key={c} className="hm-label-x">{prettyCat(c)}</div>)}
-              {data.heatmap.companies.map((co) => (
-                <HeatRow key={co} co={co} data={data} />
-              ))}
+          {data.heatmap.companies.length === 0 || data.heatmap.categories.length === 0 ? (
+            <div className="empty" style={{ padding: 28 }}>
+              No risk-factor exposure has been extracted for this firm’s holdings yet — run enrichment to pull each top holding’s 10-K risk factors into the graph.
             </div>
-          </div>
-          <div className="row" style={{ gap: 14, marginTop: 12 }}>
-            {['none', 'low', 'elevated', 'high'].map((l, i) => (
-              <span key={l} className="row" style={{ gap: 6, fontSize: 11.5 }}>
-                <span style={{ width: 14, height: 14, borderRadius: 3, background: i === 0 ? 'var(--surface-2)' : SEV[i], border: '1px solid var(--border)' }} />
-                <span className="faint">{l}</span>
-              </span>
-            ))}
-          </div>
+          ) : (
+            <>
+              <div className="table-wrap">
+                <div className="heatmap" style={{ gridTemplateColumns: `180px repeat(${data.heatmap.categories.length}, minmax(74px, 1fr))`, minWidth: 640 }}>
+                  <div />
+                  {data.heatmap.categories.map((c) => <div key={c} className="hm-label-x">{prettyCat(c)}</div>)}
+                  {data.heatmap.companies.map((co) => (
+                    <HeatRow key={co} co={co} data={data} />
+                  ))}
+                </div>
+              </div>
+              <div className="row" style={{ gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
+                {['none', 'low', 'elevated', 'high'].map((l, i) => (
+                  <span key={l} className="row" style={{ gap: 6, fontSize: 11.5 }}>
+                    <span style={{ width: 14, height: 14, borderRadius: 3, background: i === 0 ? 'var(--surface-2)' : SEV[i], border: '1px solid var(--border)' }} />
+                    <span className="faint">{l}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -135,6 +174,11 @@ export function RiskDashboard() {
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head"><h3>Single-source supply flags</h3><span className="card-head-sub">one supplier that many held issuers critically depend on</span></div>
         <div className="card-pad stack">
+          {data.single_source.length === 0 && (
+            <div className="empty" style={{ padding: 28 }}>
+              No single-source supply chokepoints flagged across the current holdings. Flags appear when several held issuers critically depend on one shared supplier.
+            </div>
+          )}
           {data.single_source.map((s) => (
             <div key={s.supplier} className="res-item">
               <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>

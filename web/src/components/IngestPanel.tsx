@@ -95,10 +95,23 @@ export function IngestPanel() {
     }
   }
 
+  // A terminal `error` event (e.g. the backend's 90s extraction-model timeout) ends the stream WITHOUT
+  // a job.completed. Surface its message and treat it as terminal — uploadDocument resolves when the
+  // stream closes, so `running` already clears; we just need to show why it stopped.
+  const errEvent = received['error']
+  const errMsg = errEvent
+    ? String((errEvent.data as { message?: string }).message ?? 'The pipeline reported an error and stopped.')
+    : null
+
+  // The real upload pipeline (/ingest/documents) never emits `impact` — only the demo sequence does.
+  // Only show the impact stage once it has actually arrived, so a successful upload doesn't strand a
+  // permanently-"pending" stage between two completed ones.
+  const visibleStages = STAGES.filter((s) => s.key !== 'impact' || received['impact'])
+
   const statusFor = (key: EventType, idx: number): Status => {
-    if (errored && !received[key]) return 'pending'
+    if ((errored || errEvent) && !received[key]) return 'pending'
     if (received[key]) return 'done'
-    const doneCount = STAGES.filter((s) => received[s.key]).length
+    const doneCount = visibleStages.filter((s) => received[s.key]).length
     if (running && idx === doneCount) return 'active'
     return 'pending'
   }
@@ -160,23 +173,36 @@ export function IngestPanel() {
         )}
         {(started || running) && (
           <div className="timeline">
-            {STAGES.map((s, i) => {
+            {visibleStages.map((s, i) => {
               const st = statusFor(s.key, i)
               const ev = received[s.key]
               return (
                 <div key={s.key} className={`tl-item ${st}`}>
                   <div className="tl-rail">
                     <div className="tl-dot">{st === 'done' ? <Icon name="check" size={13} /> : st === 'active' ? '' : i + 1}</div>
-                    {i < STAGES.length - 1 && <div className="tl-line" />}
+                    {i < visibleStages.length - 1 && <div className="tl-line" />}
                   </div>
                   <div className="tl-body">
                     <div className="tl-title">{s.title}{st === 'active' && <span className="pill accent" style={{ fontSize: 10, padding: '1px 7px' }}>running</span>}</div>
                     <div className="faint" style={{ fontSize: 12 }}>{s.desc}</div>
+                    {st === 'active' && s.key === 'extracted' && (
+                      <div style={{ fontSize: 11.5, marginTop: 4, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="info" size={12} />Calling the extraction model — this can take up to ~90s.
+                      </div>
+                    )}
                     {ev && <StageData ev={ev} />}
                   </div>
                 </div>
               )
             })}
+          </div>
+        )}
+        {errMsg && !completed && (
+          <div className="row" style={{ gap: 10, marginTop: 12, padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--bad-bg)', color: 'var(--bad)', alignItems: 'flex-start' }}>
+            <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1 }}><Icon name="alert" size={15} /></span>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              <strong>Ingest didn’t complete.</strong> {errMsg}
+            </div>
           </div>
         )}
         {completed && <div className="pill good" style={{ marginTop: 8 }}><Icon name="check" size={13} />Ingest complete — graph updated, change-impact briefing generated</div>}
