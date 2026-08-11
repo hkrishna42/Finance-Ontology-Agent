@@ -104,6 +104,37 @@ def enqueue(
     return int(cur.lastrowid or 0)
 
 
+def set_provenance(
+    conn: sqlite3.Connection,
+    queue_id: int,
+    *,
+    span: str | None = None,
+    label: str | None = None,
+    aliases: list[str] | None = None,
+    doc_id: str | None = None,
+    chunk_id: str | None = None,
+) -> None:
+    """Attach document provenance to an already-queued mention (coalesce: only overwrite when given).
+
+    The resolver enqueues a bare provisional row; the ingest pipeline calls this to fill in the source
+    span / doc / chunk it holds, so the /resolve panel can show a real snippet instead of a null span.
+    A `None` argument leaves the stored value untouched; `aliases` is only written when non-empty.
+    """
+    aliases_json = json.dumps(aliases) if aliases else None
+    conn.execute(
+        "UPDATE resolution_queue SET "
+        "  span = coalesce(?, span), "
+        "  label = coalesce(?, label), "
+        "  aliases_json = coalesce(?, aliases_json), "
+        "  doc_id = coalesce(?, doc_id), "
+        "  chunk_id = coalesce(?, chunk_id), "
+        "  updated_at = datetime('now') "
+        "WHERE id = ?",
+        (span, label, aliases_json, doc_id, chunk_id, queue_id),
+    )
+    conn.commit()
+
+
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
     d["candidates"] = json.loads(d.pop("candidates_json") or "[]")

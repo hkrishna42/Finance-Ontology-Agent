@@ -90,6 +90,16 @@ def extract_chunk(
     return ChunkExtraction(grounded, dropped, res.usage, res.model)
 
 
+def _is_systemic(exc: Exception) -> bool:
+    """A timeout / connection failure is systemic (a dead or blocked endpoint), not one bad chunk.
+
+    Matched by class-name substring so importing this module never needs the Anthropic/httpx SDKs
+    (stub mode stays dependency-free): APITimeoutError, APIConnectionError, ReadTimeout, ConnectError…
+    """
+    name = type(exc).__name__.lower()
+    return "timeout" in name or "connection" in name or "connecterror" in name
+
+
 def extract_document(
     text: str,
     *,
@@ -102,7 +112,15 @@ def extract_document(
     chunks = chunks if chunks is not None else chunk_document(text)
     out = DocumentExtraction()
     last_exc: Exception | None = None
+    systemic = False
     for i, ch in enumerate(chunks):
+        if systemic:
+            # A prior chunk failed with a timeout / connection error: don't keep hammering a dead
+            # endpoint (that is the "stuck after chunked" hang). Record an empty result to keep
+            # per_chunk aligned 1:1 with chunks, and let the all-failed check below surface it.
+            out.failed_chunks += 1
+            out.per_chunk.append(ChunkExtraction(ExtractionResult(), [], Usage(), "error"))
+            continue
         try:
             ce = extract_chunk(ch.text, doc_meta=doc_meta, provider=provider, threshold=threshold)
         except Exception as exc:  # noqa: BLE001 - isolate a bad chunk; don't lose the whole document
@@ -110,6 +128,8 @@ def extract_document(
             last_exc = exc
             logger.warning("extraction failed for chunk %d/%d: %s", i + 1, len(chunks), exc)
             ce = ChunkExtraction(ExtractionResult(), [], Usage(), "error")
+            if _is_systemic(exc):
+                systemic = True
         out.per_chunk.append(ce)  # kept 1:1 with `chunks` so downstream zip(strict=True) holds
     # Every chunk failing is systemic (bad key / network / schema), not one awkward chunk — surface it.
     if chunks and out.failed_chunks == len(chunks) and last_exc is not None:

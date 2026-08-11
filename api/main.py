@@ -34,8 +34,9 @@ from .ingest.routes import router as ingest_router
 from .lakehouse.routes import router as lakehouse_router
 from .mdm.routes import router as mdm_router
 
-# Application module routers (M5–M7). The graph/query routers (M2–M3) are wired the same way
+# Application module routers (M5–M8). The graph/query routers (M2–M3) are wired the same way
 # when that workstream merges.
+from .modules.eval_routes import router as eval_router
 from .modules.impact_routes import router as impact_router
 from .modules.reg_routes import router as reg_router
 from .modules.risk_routes import router as risk_router
@@ -105,6 +106,7 @@ app.add_middleware(
 app.include_router(risk_router)
 app.include_router(impact_router)
 app.include_router(reg_router)
+app.include_router(eval_router)
 app.include_router(graph_router)
 app.include_router(query_router)
 app.include_router(resolve_router)

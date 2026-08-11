@@ -32,11 +32,17 @@ class ProviderError(RuntimeError):
 def _make_client(settings: Settings) -> Any:
     import anthropic
 
+    # Bounded so a single request can't hang forever: `timeout` caps each HTTP attempt and
+    # `max_retries` caps the retry fan-out, so total wall-clock per call is bounded (not infinite).
+    bounds: dict[str, Any] = {
+        "timeout": settings.llm_timeout_seconds,
+        "max_retries": settings.llm_max_retries,
+    }
     if settings.anthropic_target == "bedrock":
         # VPC deploy: Bedrock-hosted Claude. Model ids are prefixed with "anthropic." below.
-        return anthropic.AnthropicBedrockMantle(aws_region=settings.aws_region)
+        return anthropic.AnthropicBedrockMantle(aws_region=settings.aws_region, **bounds)
     # Reads ANTHROPIC_API_KEY from the environment.
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    return anthropic.Anthropic(api_key=settings.anthropic_api_key, **bounds)
 
 
 class AnthropicProvider:

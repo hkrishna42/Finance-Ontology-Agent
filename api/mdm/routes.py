@@ -55,6 +55,36 @@ def _representative(records: list[dict[str, Any]]) -> dict[str, Any]:
     return best.get("attributes", {})
 
 
+# Test seam: inject a fake store (`.run(cypher, **params)`) so the graph-derived entities are
+# exercised offline without a live Neo4j. `None` → open a best-effort real store (see below).
+_GRAPH_STORE: Any = None
+
+
+def _graph_master_entities() -> list[dict[str, Any]]:
+    """Best-effort graph-derived master entities; `[]` when the graph is unavailable.
+
+    Reuses `_neo4j_store()` (which verifies connectivity and returns `None` on any failure, so this
+    fails fast in offline CI) unless a store is injected via `_GRAPH_STORE`. Any error → `[]`, so the
+    neutral lakehouse seed remains the fallback when the graph yields nothing.
+    """
+    from . import graph as mdm_graph
+
+    injected = _GRAPH_STORE is not None
+    store = _GRAPH_STORE if injected else _neo4j_store()
+    if store is None:
+        return []
+    try:
+        return mdm_graph.graph_master_entities(store)
+    except Exception:  # noqa: BLE001 - graph read is best-effort; never break the seed listing
+        return []
+    finally:
+        if not injected:
+            try:
+                store.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 @router.get("/entities")
 def list_entities() -> dict[str, Any]:
     conn = _conn()
@@ -78,7 +108,15 @@ def list_entities() -> dict[str, Any]:
                 "n_attributes": len(spec["attributes"]),
                 "fibo_curie": g.curie or None,
                 "fibo_class": g.class_iri or None,
+                "source": "lakehouse",
             })
+        # ALSO surface entities that actually exist in the ingested graph (deduped by entity_id, so a
+        # graph Company never shadows a seed one). Best-effort: absent/empty graph → seed only.
+        seen = {e["entity_id"] for e in out}
+        for ge in _graph_master_entities():
+            if ge["entity_id"] not in seen:
+                out.append(ge)
+                seen.add(ge["entity_id"])
         return {"entities": out}
     finally:
         conn.close()

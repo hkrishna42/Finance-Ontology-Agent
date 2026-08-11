@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     anthropic_target: Literal["anthropic", "bedrock"] = "anthropic"
     aws_region: str = "us-east-1"
     routing_profile: Literal["balanced", "quality-max"] = "balanced"
+    # Bounded per-request timeout (seconds) + retry cap for a single real LLM call, so a slow or
+    # blocked network can't hang ingest forever after the `chunked` event. Applies to the Anthropic
+    # path only; PROVIDER_MODE=stub / FakeProvider does no I/O and is unaffected.
+    llm_timeout_seconds: float = 90.0
+    llm_max_retries: int = 1
 
     # Cassettes (record real responses once; replay offline in CI / make eval)
     cassette_dir: str = ".cassettes"

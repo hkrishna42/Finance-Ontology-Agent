@@ -93,6 +93,17 @@ def _chunk_id(doc_id: str, index: int) -> str:
     return f"{doc_id}_c{index + 1}"
 
 
+def _extraction_error_detail(exc: Exception) -> str:
+    """A terminal `error` message for a failed extraction, naming an LLM timeout when that's the cause."""
+    name = type(exc).__name__
+    if "timeout" in name.lower() or "timeout" in str(exc).lower():
+        return (
+            f"LLM extraction timed out ({name}): the model call exceeded the bounded per-request "
+            "timeout (settings.llm_timeout_seconds); ingest degraded to 0 entities."
+        )[:400]
+    return f"LLM extraction failed ({name}): {exc}"[:400]
+
+
 def _today() -> str:
     return datetime.now(UTC).date().isoformat()
 
@@ -247,14 +258,25 @@ def ingest_document(
         yield emit(EventType.CHUNKED, chunks=len(chunks))
 
         # 5. extracted (the ONE LLM step) — grounding gate already applied inside ---------
+        # This is the only network/LLM call, and the one that can hang behind a slow endpoint. The
+        # provider call is bounded (settings.llm_timeout_seconds); on timeout/error we DEGRADE rather
+        # than hang: resolve the `extracted` stage with an empty result, emit a terminal `error`
+        # naming the failure, and end the stream cleanly (no resolved/written/completed).
         doc_meta = f"doc_id={source.doc_id} type={source.doc_type} title={source.title or ''}"
-        extraction: DocumentExtraction = extract_document(
-            source.text,
-            doc_meta=doc_meta,
-            provider=provider,
-            threshold=threshold,
-            chunks=chunks,
-        )
+        try:
+            extraction: DocumentExtraction = extract_document(
+                source.text,
+                doc_meta=doc_meta,
+                provider=provider,
+                threshold=threshold,
+                chunks=chunks,
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade gracefully; never leave the stream hanging
+            yield emit(EventType.EXTRACTED, entities=0, relations=0, dropped=0)
+            yield emit(
+                EventType.ERROR, message=_extraction_error_detail(exc), where="extract_document"
+            )
+            return
         result.usage = extraction.usage
         result.entities = len(extraction.entities)
         result.relations = len(extraction.relations)
@@ -270,10 +292,13 @@ def ingest_document(
 
         # 6. resolved — pin Company mentions to the SEC/GLEIF spine (deterministic) -------
         company_reps: dict[str, ExtractedEntity] = {}
-        for ce in extraction.per_chunk:
+        company_chunk: dict[str, str] = {}  # first chunk a mention appears in (queue-row provenance)
+        for chunk, ce in zip(chunks, extraction.per_chunk, strict=True):
+            cid = _chunk_id(source.doc_id, chunk.index)
             for e in ce.result.entities:
-                if e.label == "Company":
-                    company_reps.setdefault(e.name, e)
+                if e.label == "Company" and e.name not in company_reps:
+                    company_reps[e.name] = e
+                    company_chunk[e.name] = cid
         resolution_map: dict[str, Any] = {}
         for name, rep in company_reps.items():
             res = resolver.resolve(
@@ -287,6 +312,21 @@ def ingest_document(
                 result.merged += 1
             else:
                 result.provisional += 1
+                # Enrich the just-queued provisional row with the source span/doc/chunk we hold, so the
+                # /resolve panel shows a real snippet (best-effort; skipped for resolvers with no queue).
+                qid = getattr(res, "queue_id", None)
+                if conn is not None and qid:
+                    from ..resolution import store as queue_store
+
+                    queue_store.set_provenance(
+                        conn,
+                        int(qid),
+                        span=(getattr(rep, "span", None) or None),
+                        label=getattr(rep, "label", None),
+                        aliases=(list(rep.aliases) if getattr(rep, "aliases", None) else None),
+                        doc_id=source.doc_id,
+                        chunk_id=company_chunk.get(name),
+                    )
         yield emit(
             EventType.RESOLVED,
             merged=result.merged,

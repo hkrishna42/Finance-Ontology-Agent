@@ -104,18 +104,42 @@ def _candidate_to_ui(c: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _best_confidence(candidates: list[dict[str, Any]], stored: Any) -> float | None:
+    """The meaningful queue confidence for the UI (types.ts `confidence: number | null`).
+
+    It is the resolver's BEST-candidate match score (max over candidate scores) — how good the top
+    match is. With no candidate to match against there is no real score, so we return `None` (the UI
+    renders "no candidate match") rather than a misleading `0.00`. An explicit non-zero stored
+    confidence (e.g. a mention enqueued with a known score) is honoured as a fallback.
+    """
+    scores = [
+        c["score"] for c in candidates
+        if isinstance(c.get("score"), (int, float)) and c["score"] is not None
+    ]
+    if scores:
+        return round(float(max(scores)), 4)
+    if isinstance(stored, (int, float)) and stored > 0:
+        return round(float(stored), 4)
+    return None
+
+
 def _row_to_provisional_entity(row: dict[str, Any]) -> dict[str, Any]:
-    """Map a live queue row (store._row_to_dict) → types.ts ProvisionalEntity."""
+    """Map a live queue row (store._row_to_dict) → types.ts ProvisionalEntity.
+
+    `confidence` and `span` are nullable: a genuinely-absent score/span is emitted as `null` (never
+    `0.00` / `""`) so the panel can distinguish "no candidate match" from a real low score.
+    """
+    candidates = [_candidate_to_ui(c) for c in (row.get("candidates") or [])]
     return {
         "id": f"prov-{row['id']}",
         "label": row.get("label") or "Company",
         "name": row.get("mention", ""),
         "aliases": row.get("aliases") or [],
-        "span": row.get("span") or "",
+        "span": row.get("span") or None,
         "doc_id": row.get("doc_id") or "",
         "chunk_id": row.get("chunk_id") or "",
-        "confidence": float(row.get("confidence", 0.0) or 0.0),
-        "candidates": [_candidate_to_ui(c) for c in (row.get("candidates") or [])],
+        "confidence": _best_confidence(candidates, row.get("confidence")),
+        "candidates": candidates,
         "status": _STATUS_MAP.get(row.get("status", "provisional"), "pending"),
     }
 
