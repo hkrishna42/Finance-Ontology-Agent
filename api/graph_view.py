@@ -15,6 +15,7 @@ from neo4j import GraphDatabase
 
 from .config import get_settings
 from .fibo import grounding as fibo_grounding
+from .fibo import tbox
 from .firms import scope
 
 router = APIRouter(tags=["graph"])
@@ -138,6 +139,13 @@ def _node_fibo(node_type: str, props: dict) -> dict:
     class (e.g. Fund -> CollectiveInvestmentVehicle, a bond issuer -> CorporateDebtIssuer) rather than
     a client-side type guess. Un-groundable labels (Chunk, RiskFactor, ...) return {} (no fibo_class),
     which is correct — those aren't FIBO classes."""
+    stored = props.get("fibo_class")
+    if stored:  # a persisted grounding (stamped at write time / by MDM) is authoritative
+        try:
+            iri = tbox.iri_for(stored)
+        except Exception:  # noqa: BLE001 - a malformed stored curie must not break the read
+            iri = ""
+        return {"fibo_class": stored, "fibo_iri": iri, "fibo_refined": bool(props.get("fibo_refined"))}
     g = fibo_grounding.ground(node_type, category=props.get("category"), attributes=props)
     if not g.grounded:
         return {}

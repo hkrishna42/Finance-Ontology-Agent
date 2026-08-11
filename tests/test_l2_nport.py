@@ -91,6 +91,13 @@ def test_cypher_write_plan_shape():
     holds_query, holds_params = plan[1]
     assert "HOLDS" in holds_query
     assert holds_params["method"] == "structured_parse"
+    # persisted FIBO grounding is stamped (coalesce) on the Fund + issuer Company nodes
+    from api.ontology.schema import entity_spec
+
+    assert "f.fibo_class = coalesce(f.fibo_class, $fund_fibo)" in fund_query
+    assert fund_params["fund_fibo"] == entity_spec("Fund").fibo_class
+    assert "co.fibo_class = coalesce(co.fibo_class, $company_fibo)" in holds_query
+    assert holds_params["company_fibo"] == entity_spec("Company").fibo_class
 
 
 # --- guarded integration test (needs the worktree Neo4j) -----------------------------------

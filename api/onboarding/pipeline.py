@@ -29,6 +29,7 @@ from uuid import uuid4
 from ..contracts.events import EventType, SSEEvent, make_event
 from ..firms import store as firms_store
 from ..l2 import nport
+from ..ontology.schema import entity_spec
 from .enrich import enrich_firm
 
 
@@ -112,10 +113,12 @@ def onboard_firm(
         )
         store.run(
             "MERGE (firm:Company {name: $n}) "
-            "SET firm.cik = coalesce($cik, firm.cik), firm.lei = coalesce($lei, firm.lei)",
+            "SET firm.cik = coalesce($cik, firm.cik), firm.lei = coalesce($lei, firm.lei), "
+            "    firm.fibo_class = coalesce(firm.fibo_class, $fibo)",
             n=name,
             cik=cik,
             lei=lei,
+            fibo=entity_spec("Company").fibo_class,
         )
         firms_store.upsert_firm(
             conn, name=name, cik=cik, lei=lei, status="onboarding", source="edgar"

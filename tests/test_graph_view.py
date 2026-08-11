@@ -239,3 +239,15 @@ def test_neighbors_endpoint_runs_ranked_neighbors_cypher(monkeypatch):
     assert calls[0]["params"]["min_conf"] == 0.0
     assert calls[0]["params"]["entitlements"] == ["public"]
     assert len(out["nodes"]) == 2 and len(out["edges"]) == 1
+
+
+def test_shape_prefers_stored_fibo_class_over_recompute():
+    # A node with a persisted (possibly refined) fibo_class keeps it — read-time grounding defers to
+    # the stored value rather than recomputing the label default (so an ingest/MDM refinement wins).
+    row = _row() | {"m_props": {"ticker": "X",
+                                "fibo_class": "fibo-sec-dbt-dbt:CorporateDebtIssuer",
+                                "fibo_refined": True}}
+    out = shape_subgraph([row])
+    company = next(n for n in out["nodes"] if n["id"] == "n2")
+    assert company["fibo_class"] == "fibo-sec-dbt-dbt:CorporateDebtIssuer"
+    assert company["fibo_refined"] is True

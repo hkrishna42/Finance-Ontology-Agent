@@ -23,9 +23,17 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from ..ontology.schema import entity_spec
+
 HOLDS_METHOD = "structured_parse"
 HOLDS_CONFIDENCE = 1.0
 DEFAULT_SOURCE = "NPORT-P"
+
+# Persist the deterministic FIBO grounding on the nodes this L2 path writes, so Fund + issuer Company
+# nodes carry `fibo_class` in Neo4j (not only computed at read time). Sourced from the ontology SSOT
+# (EntitySpec.fibo_class); the writes `coalesce` so a refined class stamped elsewhere is never clobbered.
+_FUND_FIBO = entity_spec("Fund").fibo_class
+_COMPANY_FIBO = entity_spec("Company").fibo_class
 
 
 # --- data model ----------------------------------------------------------------------------
@@ -207,14 +215,16 @@ def holds_rows(filing: NportFiling, *, source: str = DEFAULT_SOURCE) -> list[dic
 # ticker/cusip we parsed), and MERGE the weighted HOLDS edge with structured-parse provenance.
 _FUND_MERGE = (
     "MERGE (f:Fund {name: $fund_name}) "
-    "SET f.series_id = $series_id, f.cik = $cik, f.lei = coalesce($lei, f.lei)"
+    "SET f.series_id = $series_id, f.cik = $cik, f.lei = coalesce($lei, f.lei), "
+    "    f.fibo_class = coalesce(f.fibo_class, $fund_fibo)"
 )
 
 _HOLDS_MERGE = (
     "MATCH (f:Fund {name: $fund_name}) "
     "MERGE (co:Company {name: $company_name}) "
     "  ON CREATE SET co.ticker = $ticker "
-    "SET co.ticker = coalesce(co.ticker, $ticker), co.lei = coalesce(co.lei, $lei) "
+    "SET co.ticker = coalesce(co.ticker, $ticker), co.lei = coalesce(co.lei, $lei), "
+    "    co.fibo_class = coalesce(co.fibo_class, $company_fibo) "
     "MERGE (f)-[r:HOLDS]->(co) "
     "SET r.weight_pct = $weight_pct, r.value_usd = $value_usd, r.shares = $shares, "
     "    r.as_of = $as_of, r.source = $source, r.method = $method, r.confidence = $confidence"
@@ -236,11 +246,12 @@ def cypher_writes(
                 "series_id": filing.series_id,
                 "cik": filing.cik,
                 "lei": filing.lei,
+                "fund_fibo": _FUND_FIBO,
             },
         )
     ]
     for row in holds_rows(filing, source=source):
-        plan.append((_HOLDS_MERGE, row))
+        plan.append((_HOLDS_MERGE, {**row, "company_fibo": _COMPANY_FIBO}))
     return plan
 
 
