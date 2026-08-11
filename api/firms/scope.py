@@ -58,6 +58,11 @@ def active_firm_name(conn: sqlite3.Connection | None = None) -> str | None:
 # attaches to none) is still browsable in the Graph Explorer and Documents.
 ALL_SCOPE = "__all__"
 
+# The one firm whose scope keeps the demo experience: the seeded lakehouse master entities and the
+# committed NVIDIA/TSMC resolution demo. It is fictional (never a real client), so it stays in
+# committed source. Real onboarded firms resolve to their own name and get scoped/empty projections.
+DEMO_FIRM_NAME = "Demo Investment Management"
+
 
 def resolve_firm(firm: str | None, conn: sqlite3.Connection | None = None) -> str | None:
     """The requested ``firm`` (query param) if truthy, else the active firm; ``None`` if neither.
@@ -70,6 +75,17 @@ def resolve_firm(firm: str | None, conn: sqlite3.Connection | None = None) -> st
     if firm:
         return firm
     return active_firm_name(conn)
+
+
+def is_demo_scope(resolved: str | None) -> bool:
+    """Whether a resolved firm should keep the demo seed + committed demo fixtures.
+
+    ``True`` for the unscoped case (``None`` — no active firm / "All data" / fresh install) and the
+    fictional demo firm, so the demo experience (lakehouse seed, NVIDIA/TSMC resolution queue) stays
+    intact. Every *real* onboarded firm resolves to its own name → ``False`` → a firm-scoped (and
+    legitimately empty, never demo) projection.
+    """
+    return resolved is None or resolved == DEMO_FIRM_NAME
 
 
 def firm_fund_names(store: Neo4jStore, firm: str | None) -> list[str]:

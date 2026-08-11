@@ -145,8 +145,8 @@ export default function App() {
               {active === 'graph' && <GraphExplorer focus={focus} themeKey={themeKey} firm={activeFirm} />}
               {active === 'docs' && <DocViewer focus={focus} firm={activeFirm} />}
               {active === 'ingest' && <IngestPanel />}
-              {active === 'resolve' && <ResolutionQueue />}
-              {active === 'mdm' && <MasterDataManagement />}
+              {active === 'resolve' && <ResolutionQueue firm={activeFirm} />}
+              {active === 'mdm' && <MasterDataManagement firm={activeFirm} />}
               {active === 'risk' && <RiskDashboard />}
               {active === 'impact' && <ImpactFeed onNavigate={navigate} firm={activeFirm} />}
               {active === 'reports' && <ReportCenter onNavigate={navigate} />}

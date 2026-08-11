@@ -32,6 +32,25 @@ ORDER BY n_mentions DESC, n_docs DESC, name
 LIMIT $limit
 """
 
+# Firm-scoped master entities: the Companies the firm's funds HOLD (its issuer holdings), which is the
+# firm analog of "the master entities this firm actually owns". Same firm-subgraph anchor the Graph
+# Explorer uses ((c)<-[:HOLDS]-(:Fund)-[:MANAGED_BY]->(:Company {name:$firm})). Mentions/docs are an
+# OPTIONAL MATCH so a held issuer with zero ingested mentions still surfaces (n_mentions = 0). Counts
+# are DISTINCT because a company held by several of the firm's funds fans the row out. Ranked by the
+# firm's largest position (max holding weight) then recurrence — the same "biggest holdings first"
+# ordering as /graph/neighbors. A firm holding nothing yields []. Same returned columns as above.
+GRAPH_MASTER_FIRM_CYPHER = """
+MATCH (c:Company)<-[h:HOLDS]-(:Fund)-[:MANAGED_BY]->(:Company {name: $firm})
+OPTIONAL MATCH (c)<-[m:MENTIONS]-(ch:Chunk)
+WITH c, coalesce(max(h.weight_pct), 0.0) AS max_weight,
+     count(DISTINCT ch.doc_id) AS n_docs, count(DISTINCT m) AS n_mentions
+RETURN c.name AS name, c.cik AS cik, c.lei AS lei, c.category AS category,
+       c.fibo_class AS fibo_class, n_docs, n_mentions,
+       size([k IN keys(c) WHERE c[k] IS NOT NULL]) AS n_props
+ORDER BY max_weight DESC, n_mentions DESC, name
+LIMIT $limit
+"""
+
 
 def _to_mdm_entity(row: dict[str, Any]) -> dict[str, Any] | None:
     """Map one graph row → the `MdmEntity` shape (types.ts) with an additive `graph` discriminator."""
@@ -59,13 +78,22 @@ def _to_mdm_entity(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def graph_master_entities(store: Any, *, limit: int = 25) -> list[dict[str, Any]]:
-    """Read recurring `Company` master entities from the graph as `MdmEntity[]`.
+def graph_master_entities(
+    store: Any, *, firm: str | None = None, limit: int = 25
+) -> list[dict[str, Any]]:
+    """Read `Company` master entities from the graph as `MdmEntity[]`.
+
+    Unscoped (`firm=None`) → the recurring Companies across the whole corpus (the demo/seed listing).
+    Scoped (`firm=<name>`) → only the Companies the firm's funds HOLD, ranked by holding weight; a
+    firm holding nothing yields `[]` (never the demo issuers).
 
     `store` is any object exposing `.run(cypher, **params) -> list[dict]` (a `Neo4jStore`, or a fake
     in tests). Raises only if `store.run` raises — the caller wraps this best-effort.
     """
-    rows = store.run(GRAPH_MASTER_CYPHER, limit=limit)
+    if firm:
+        rows = store.run(GRAPH_MASTER_FIRM_CYPHER, firm=firm, limit=limit)
+    else:
+        rows = store.run(GRAPH_MASTER_CYPHER, limit=limit)
     out: list[dict[str, Any]] = []
     for r in rows:
         entity = _to_mdm_entity(r)

@@ -5,8 +5,8 @@ import { useLoaded } from '../lib/useLoaded'
 import { EntityTag, PanelHead, SourceBadge } from '../lib/ui'
 import { Icon } from '../lib/icons'
 
-export function ResolutionQueue() {
-  const { data, source, loading } = useLoaded<ProvisionalEntity[]>(getResolutionQueue)
+export function ResolutionQueue({ firm }: { firm?: string | null }) {
+  const { data, source, loading } = useLoaded<ProvisionalEntity[]>(() => getResolutionQueue(firm ?? undefined), [firm])
   const [items, setItems] = useState<ProvisionalEntity[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   useEffect(() => { if (data) setItems(data) }, [data])
@@ -55,7 +55,7 @@ export function ResolutionQueue() {
       ) : items.length === 0 ? (
         <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 24px' }}>
           <div className="brand-mark" style={{ width: 34, height: 34, borderRadius: 9, margin: '0 auto 12px', background: 'linear-gradient(135deg,#2f9e44,#37b24d)' }}><Icon name="check" size={18} /></div>
-          <strong style={{ fontSize: 14 }}>Resolution queue is clear</strong>
+          <strong style={{ fontSize: 14 }}>Resolution queue is clear{firm ? ' for this firm' : ''}</strong>
           <p className="faint" style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 440, margin: '8px auto 0' }}>
             Every extracted mention has been confidently merged to a canonical entity. New provisional
             entities appear here whenever ingestion finds a mention the resolver can’t auto-merge.

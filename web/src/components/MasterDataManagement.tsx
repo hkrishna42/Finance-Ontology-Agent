@@ -11,7 +11,7 @@ const AGENTS = [
   ['Agent D · GraphRAG', 'Natural language → Cypher & grounding'],
 ]
 
-export function MasterDataManagement() {
+export function MasterDataManagement({ firm }: { firm?: string | null }) {
   const [entities, setEntities] = useState<MdmEntity[]>([])
   const [selected, setSelected] = useState<MdmEntity | null>(null)
   const [sources, setSources] = useState<MdmSources | null>(null)
@@ -20,7 +20,13 @@ export function MasterDataManagement() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => { void getMdmEntities().then((e) => { setEntities(e); setLoading(false) }) }, [])
+  // Refetch whenever the active firm changes — a real firm scopes to its own held issuers, the demo
+  // firm keeps the seed. Reset the selection so a stale pick from the previous firm never lingers.
+  useEffect(() => {
+    setLoading(true)
+    setSelected(null); setSources(null); setMatch(null); setMerged(null)
+    void getMdmEntities(firm ?? undefined).then((e) => { setEntities(e); setLoading(false) })
+  }, [firm])
 
   const select = async (e: MdmEntity) => {
     setSelected(e); setSources(null); setMatch(null); setMerged(null)
@@ -63,7 +69,7 @@ export function MasterDataManagement() {
       <Section n={1} title="Select master entity to resolve">
         {loading ? <div className="loading"><span className="spinner" />Loading entities…</div> : (
           entities.length === 0
-            ? <div className="empty">No master entities in the lakehouse yet.</div>
+            ? <div className="empty">{firm ? 'No master entities for this firm yet.' : 'No master entities in the lakehouse yet.'}</div>
             : (
               <div className="grid grid-3">
                 {entities.map((e) => (

@@ -13,10 +13,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..config import get_settings
+from ..firms import scope
 from ..stores.sqlite import connect
 from . import store as queue_store
 from .resolver import Resolver
@@ -26,6 +27,21 @@ router = APIRouter(prefix="/resolve", tags=["resolve"])
 _DEMO_FIXTURE = (
     Path(__file__).resolve().parents[2] / "fixtures" / "resolution" / "demo_provisional.json"
 )
+
+# A real firm's Document ids — the doc_ids its provisional queue rows must belong to. Same firm-
+# subgraph predicate as `graph_view._DOCS_FIRM_CYPHER` (a doc ingested for the firm, or one whose
+# Chunks MENTION a Company the firm's funds HOLD), projected to bare ids. A queue row whose doc_id is
+# not among these can't be attributed to the firm, so it is dropped — a real firm never surfaces the
+# demo queue, and an unenriched firm yields a clean empty queue.
+_FIRM_DOC_IDS_CYPHER = """
+MATCH (d:Document)
+WHERE d.firm = $firm
+   OR EXISTS {
+        (:Chunk {doc_id: d.doc_id})-[:MENTIONS]->(:Company)
+          <-[:HOLDS]-(:Fund)-[:MANAGED_BY]->(:Company {name: $firm})
+      }
+RETURN DISTINCT d.doc_id AS doc_id
+"""
 
 # Live queue status → UI ProvisionalEntity.status (types.ts: 'pending'|'merged'|'kept_new'|'rejected').
 _STATUS_MAP = {
@@ -90,6 +106,32 @@ def _demo_provisional() -> list[dict[str, Any]]:
         return []
 
 
+def _firm_doc_ids(firm: str) -> set[str]:
+    """The set of Document doc_ids attributable to `firm` (best-effort; empty set on any graph error).
+
+    Opens a driver via `graph_view._driver()` (the same one the Graph/Documents reads use) and runs
+    the firm-subgraph doc projection. Any Neo4j failure degrades to an empty set → a real firm's queue
+    is a clean empty state rather than a 500 or the demo fixture.
+    """
+    from .. import graph_view
+
+    try:
+        driver = graph_view._driver()
+    except Exception:  # noqa: BLE001 - graph unavailable → empty projection, never a 500
+        return set()
+    try:
+        with driver.session() as sess:
+            rows = sess.run(_FIRM_DOC_IDS_CYPHER, firm=firm).data()
+        return {r["doc_id"] for r in rows if r.get("doc_id")}
+    except Exception:  # noqa: BLE001 - best-effort; a graph hiccup means "no attributable docs"
+        return set()
+    finally:
+        try:
+            driver.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _candidate_to_ui(c: dict[str, Any]) -> dict[str, Any]:
     """Normalize a stored candidate (resolver Candidate or already-UI shape) to ResolutionCandidate."""
     if "existing_id" in c:  # already UI-shaped (demo fixture / ingest)
@@ -145,16 +187,28 @@ def _row_to_provisional_entity(row: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("")
-def resolution_queue(conn: ConnDep) -> list[dict[str, Any]]:
-    """UI contract: the provisional-entity queue as a bare `ProvisionalEntity[]`.
+def resolution_queue(
+    conn: ConnDep, firm: str | None = Query(default=None)
+) -> list[dict[str, Any]]:
+    """UI contract: the provisional-entity queue as a bare `ProvisionalEntity[]`, scoped to the active
+    firm (or `?firm=<name>`).
 
-    Returns the live queue when it has entries; otherwise the committed demo fixture so the panel is
-    non-empty and the merge action is demoable before any real ingest has run.
+    Demo scope (no active firm / "All data" / the demo firm) → the live queue when it has entries,
+    else the committed demo fixture, so the panel is non-empty and the merge action is demoable before
+    any real ingest has run. A *real* onboarded firm → only the live rows whose `doc_id` belongs to the
+    firm's documents, and NEVER the demo fixture; a row with no attributable doc_id (or an empty
+    result) is a clean, correct empty queue.
     """
+    resolved = scope.resolve_firm(firm, conn)
     rows = queue_store.list_queue(conn, status="provisional")
-    if rows:
-        return [_row_to_provisional_entity(r) for r in rows]
-    return _demo_provisional()
+    if scope.is_demo_scope(resolved):
+        if rows:
+            return [_row_to_provisional_entity(r) for r in rows]
+        return _demo_provisional()
+    # Real firm: keep only rows attributable to the firm's documents; never the demo fixture.
+    firm_doc_ids = _firm_doc_ids(resolved)
+    scoped = [r for r in rows if (r.get("doc_id") or "") in firm_doc_ids]
+    return [_row_to_provisional_entity(r) for r in scoped]
 
 
 @router.post("/")

@@ -160,8 +160,12 @@ export async function getDocuments(firm?: string): Promise<Loaded<DocRecord[]>> 
 
 // -- Resolution queue -------------------------------------------------------------------------
 
-export async function getResolutionQueue(): Promise<Loaded<ProvisionalEntity[]>> {
-  return loaded(await tryFetch<ProvisionalEntity[]>('/resolve'), resolveFx as unknown as ProvisionalEntity[])
+export async function getResolutionQueue(firm?: string): Promise<Loaded<ProvisionalEntity[]>> {
+  const qs = firm ? `?firm=${encodeURIComponent(firm)}` : ''
+  const live = await tryFetch<ProvisionalEntity[]>(`/resolve${qs}`)
+  // Only the demo firm may fall back to the committed NVIDIA/TSMC fixture; every real firm gets an
+  // empty queue (never the demo's resolution rows) whether live-empty or offline.
+  return loaded(live, resolveFx as unknown as ProvisionalEntity[], { firm, empty: [] as ProvisionalEntity[] })
 }
 
 // Steward actions. The backend queue id is embedded in ProvisionalEntity.id as `prov-<n>` for live
@@ -374,8 +378,11 @@ async function postJson<T>(path: string, body: unknown): Promise<T | null> {
   })
 }
 
-export async function getMdmEntities(): Promise<MdmEntity[]> {
-  return (await tryFetch<{ entities: MdmEntity[] }>('/mdm/entities'))?.entities ?? []
+export async function getMdmEntities(firm?: string): Promise<MdmEntity[]> {
+  // No fixture fallback here (MDM is live-or-empty), so an offline real firm already yields []; the
+  // ?firm= scopes the backend to the firm's held issuers (seed only under demo scope).
+  const qs = firm ? `?firm=${encodeURIComponent(firm)}` : ''
+  return (await tryFetch<{ entities: MdmEntity[] }>(`/mdm/entities${qs}`))?.entities ?? []
 }
 export async function getMdmSources(entityId: string): Promise<MdmSources | null> {
   return tryFetch<MdmSources>(`/mdm/entities/${encodeURIComponent(entityId)}/sources`)

@@ -12,6 +12,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.firms.scope import DEMO_FIRM_NAME
+from api.resolution import routes as resolution_routes
 from api.resolution import store as queue_store
 from api.resolution.routes import get_conn, router
 
@@ -76,6 +78,39 @@ def test_get_resolve_maps_live_queue_rows_to_provisional_entities(client):
     cand = e["candidates"][0]
     assert cand["existing_id"] == "NVIDIA"
     assert cand["score"] == 0.97
+
+
+def test_get_resolve_demo_firm_keeps_demo_fixture(client):
+    # The fictional demo firm stays demo scope: an empty queue still yields the committed demo fixture.
+    tc, _conn = client
+    items = tc.get("/resolve", params={"firm": DEMO_FIRM_NAME}).json()
+    assert isinstance(items, list) and len(items) >= 2  # demo fixture (queue is empty)
+
+
+def test_get_resolve_real_firm_never_returns_demo_fixture(client, monkeypatch):
+    # A real firm with an EMPTY live queue must get [] — never the committed NVIDIA/TSMC demo fixture.
+    tc, _conn = client
+    monkeypatch.setattr(resolution_routes, "_firm_doc_ids", lambda firm: set())
+    items = tc.get("/resolve", params={"firm": "Acme Global Real Estate Fund"}).json()
+    assert items == []
+
+
+def test_get_resolve_real_firm_filters_rows_by_firm_docs(client, monkeypatch):
+    # A real firm returns only live rows whose doc_id belongs to the firm's documents; rows for other
+    # docs (or with no doc_id, which can't be attributed) are excluded — a clean, correct scope.
+    tc, conn = client
+    queue_store.enqueue(conn, mention="Held Issuer Inc.", normalized="held", label="Company",
+                        doc_id="firm_doc_1",
+                        candidates=[{"cik": "0000000001", "title": "HELD", "score": 0.5}])
+    queue_store.enqueue(conn, mention="Unrelated Corp.", normalized="unrelated", label="Company",
+                        doc_id="other_doc_9", candidates=[])
+    queue_store.enqueue(conn, mention="No Doc Mention", normalized="nodoc", label="Company",
+                        doc_id=None, candidates=[])
+    # the firm owns only firm_doc_1
+    monkeypatch.setattr(resolution_routes, "_firm_doc_ids", lambda firm: {"firm_doc_1"})
+
+    items = tc.get("/resolve", params={"firm": "Acme Global Real Estate Fund"}).json()
+    assert [e["name"] for e in items] == ["Held Issuer Inc."]
 
 
 def test_resolve_known_ticker_is_resolved(client):

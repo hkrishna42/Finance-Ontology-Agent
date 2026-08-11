@@ -15,11 +15,12 @@ import sqlite3
 from datetime import UTC
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from ..config import get_settings
 from ..fibo import grounding
+from ..firms import scope
 from ..lakehouse import store as lakehouse
 from ..stores.sqlite import connect
 from . import survivorship
@@ -60,12 +61,15 @@ def _representative(records: list[dict[str, Any]]) -> dict[str, Any]:
 _GRAPH_STORE: Any = None
 
 
-def _graph_master_entities() -> list[dict[str, Any]]:
+def _graph_master_entities(firm: str | None = None) -> list[dict[str, Any]]:
     """Best-effort graph-derived master entities; `[]` when the graph is unavailable.
 
     Reuses `_neo4j_store()` (which verifies connectivity and returns `None` on any failure, so this
     fails fast in offline CI) unless a store is injected via `_GRAPH_STORE`. Any error → `[]`, so the
     neutral lakehouse seed remains the fallback when the graph yields nothing.
+
+    When `firm` is set the read is scoped to that firm's held issuers (`graph_master_entities` uses the
+    firm-subgraph Cypher); unscoped it is the recurring-Company demo listing.
     """
     from . import graph as mdm_graph
 
@@ -74,7 +78,7 @@ def _graph_master_entities() -> list[dict[str, Any]]:
     if store is None:
         return []
     try:
-        return mdm_graph.graph_master_entities(store)
+        return mdm_graph.graph_master_entities(store, firm=firm)
     except Exception:  # noqa: BLE001 - graph read is best-effort; never break the seed listing
         return []
     finally:
@@ -86,9 +90,21 @@ def _graph_master_entities() -> list[dict[str, Any]]:
 
 
 @router.get("/entities")
-def list_entities() -> dict[str, Any]:
+def list_entities(firm: str | None = Query(default=None)) -> dict[str, Any]:
+    """Selectable master entities, scoped to the active firm (or `?firm=<name>`).
+
+    Demo scope (no active firm / "All data" / the demo firm) → the neutral lakehouse seed PLUS the
+    recurring graph Companies (the full demoable wizard listing). A *real* onboarded firm → NO seed;
+    only the master entities the firm's funds actually hold, read from the graph. A real firm holding
+    nothing legitimately yields `[]` (never the seed's Harborview/Meridian/Atlantic issuers).
+    """
     conn = _conn()
     try:
+        resolved = scope.resolve_firm(firm, conn)
+        if not scope.is_demo_scope(resolved):
+            # Real firm: firm-scoped graph master entities only — no lakehouse seed.
+            return {"entities": _graph_master_entities(firm=resolved)}
+
         policy = survivorship.load_policy()["entity_types"]
         out = []
         for m in lakehouse.master_entities(conn):
