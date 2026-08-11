@@ -2,10 +2,12 @@ import api.graph_view as gv
 from api.graph_view import (
     _DOCS_CYPHER,
     _DOCS_FIRM_CYPHER,
+    _NEIGHBORS_CYPHER,
     _SUBGRAPH_CYPHER,
     _SUBGRAPH_FIRM_CYPHER,
     get_documents,
     get_graph,
+    get_graph_neighbors,
     shape_documents,
     shape_subgraph,
 )
@@ -210,3 +212,30 @@ def test_documents_all_scope_sentinel_is_unscoped(monkeypatch):
     assert calls[0]["cypher"] == _DOCS_CYPHER  # all documents, not the firm's
     assert "firm" not in calls[0]["params"]
     assert len(docs) == 1
+
+
+# --- FIBO grounding on nodes + the neighbours endpoint --------------------------------------
+
+
+def test_shape_stamps_fibo_class_from_grounding():
+    # Nodes carry the real deterministic FIBO class (the same api.fibo.grounding the MDM wizard and
+    # the OWL reasoner use), so the explorer legend/colour reflect the actual per-instance grounding
+    # rather than a client-side guess.
+    out = shape_subgraph([_row()])
+    fund = next(n for n in out["nodes"] if n["type"] == "Fund")
+    company = next(n for n in out["nodes"] if n["type"] == "Company")
+    assert fund["fibo_class"] == "fibo-sec-sec-pls:CollectiveInvestmentVehicle"
+    assert company["fibo_class"] == "cmns-org:LegalEntity"
+
+
+def test_neighbors_endpoint_runs_ranked_neighbors_cypher(monkeypatch):
+    # GET /graph/neighbors expands one node via the ranked-by-weight neighbours query, and shapes the
+    # rows through the same pure function (so neighbours also carry fibo_class).
+    calls = _install_fake(monkeypatch, [_row()])
+    out = get_graph_neighbors(node_id="n1", limit=70, min_confidence=0.0, entitlements=["public"])
+    assert len(calls) == 1
+    assert calls[0]["cypher"] == _NEIGHBORS_CYPHER
+    assert calls[0]["params"]["node_id"] == "n1" and calls[0]["params"]["limit"] == 70
+    assert calls[0]["params"]["min_conf"] == 0.0
+    assert calls[0]["params"]["entitlements"] == ["public"]
+    assert len(out["nodes"]) == 2 and len(out["edges"]) == 1

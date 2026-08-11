@@ -14,6 +14,7 @@ from fastapi import APIRouter, Query
 from neo4j import GraphDatabase
 
 from .config import get_settings
+from .fibo import grounding as fibo_grounding
 from .firms import scope
 
 router = APIRouter(tags=["graph"])
@@ -78,6 +79,27 @@ RETURN elementId(n) AS n_id, labels(n)[0] AS n_type,
 LIMIT $limit
 """
 
+# One node's neighbourhood, both directions, edges ranked by holding weight then confidence — backs
+# GET /graph/neighbors for lazy "expand this node" / "load more holdings" beyond the initial /graph
+# limit. startNode/endNode(r) preserve each edge's real direction regardless of match direction; same
+# returned columns as _SUBGRAPH_CYPHER so shape_subgraph (and its FIBO grounding) applies unchanged.
+_NEIGHBORS_CYPHER = f"""
+MATCH (c)-[r]-(nbr)
+WHERE elementId(c) = $node_id
+  AND coalesce(r.confidence, 1.0) >= $min_conf
+  AND (c.sensitivity IS NULL OR c.sensitivity IN $entitlements)
+  AND (nbr.sensitivity IS NULL OR nbr.sensitivity IN $entitlements)
+  AND (r.sensitivity IS NULL OR r.sensitivity IN $entitlements)
+WITH startNode(r) AS n, endNode(r) AS m, r
+RETURN elementId(n) AS n_id, labels(n)[0] AS n_type,
+       {_LABEL_COALESCE.replace('x.', 'n.')} AS n_label, properties(n) AS n_props,
+       elementId(m) AS m_id, labels(m)[0] AS m_type,
+       {_LABEL_COALESCE.replace('x.', 'm.')} AS m_label, properties(m) AS m_props,
+       elementId(r) AS r_id, type(r) AS r_type, r.confidence AS r_conf, properties(r) AS r_props
+ORDER BY coalesce(r.weight_pct, 0.0) DESC, coalesce(r.confidence, 1.0) DESC
+LIMIT $limit
+"""
+
 # Firm-scoped documents: a Document is in-scope when it was ingested for this firm by enrichment
 # (`d.firm = $firm`, stamped by `enrich.link_subject`) OR one of its Chunks MENTIONS a Company held
 # by a Fund the firm manages. The `d.firm` arm is what surfaces a fund's own prospectus (its chunks
@@ -110,6 +132,18 @@ def _clean_props(props: dict) -> dict:
     return {k: v for k, v in (props or {}).items() if k != "embedding"}
 
 
+def _node_fibo(node_type: str, props: dict) -> dict:
+    """Deterministic FIBO grounding for a graph node — the SAME `api.fibo.grounding` the MDM wizard
+    and the OWL reasoner use, so the explorer's colour/legend/inspector reflect the real per-instance
+    class (e.g. Fund -> CollectiveInvestmentVehicle, a bond issuer -> CorporateDebtIssuer) rather than
+    a client-side type guess. Un-groundable labels (Chunk, RiskFactor, ...) return {} (no fibo_class),
+    which is correct — those aren't FIBO classes."""
+    g = fibo_grounding.ground(node_type, category=props.get("category"), attributes=props)
+    if not g.grounded:
+        return {}
+    return {"fibo_class": g.curie, "fibo_iri": g.class_iri, "fibo_refined": g.refined}
+
+
 def _driver():
     s = get_settings()
     return GraphDatabase.driver(s.neo4j_uri, auth=(s.neo4j_user, s.neo4j_password))
@@ -124,11 +158,14 @@ def shape_subgraph(rows: list[dict]) -> dict:
         for prefix in ("n", "m"):
             nid = row[f"{prefix}_id"]
             if nid not in nodes:
+                n_type = row[f"{prefix}_type"]
+                n_props = _clean_props(row[f"{prefix}_props"])
                 nodes[nid] = {
                     "id": nid,
-                    "type": row[f"{prefix}_type"],
-                    "label": row[f"{prefix}_label"] or row[f"{prefix}_type"],
-                    "props": _clean_props(row[f"{prefix}_props"]),
+                    "type": n_type,
+                    "label": row[f"{prefix}_label"] or n_type,
+                    "props": n_props,
+                    **_node_fibo(n_type, n_props),
                 }
         rid = row["r_id"]
         conf = row.get("r_conf")
@@ -195,6 +232,28 @@ def get_graph(
                     _SUBGRAPH_FIRM_CYPHER, firm=resolved, min_conf=min_confidence, limit=limit,
                     entitlements=entitlements,
                 ).data()
+    finally:
+        driver.close()
+    return shape_subgraph(rows)
+
+
+@router.get("/graph/neighbors")
+def get_graph_neighbors(
+    node_id: str = Query(..., description="elementId of the node to expand"),
+    limit: int = Query(70, ge=1, le=500),
+    min_confidence: float = Query(0.0, ge=0.0, le=1.0),
+    entitlements: list[str] = Query(default=["public"]),  # noqa: B008 (FastAPI idiom)
+) -> dict:
+    """One node's neighbourhood for lazy expansion — edges ranked by holding weight (weight_pct) then
+    confidence, so 'expand a fund' / 'load more' surfaces its largest positions first. Same
+    {nodes, edges} shape as /graph (nodes carry fibo_class); entitlement-aware."""
+    driver = _driver()
+    try:
+        with driver.session() as sess:
+            rows = sess.run(
+                _NEIGHBORS_CYPHER, node_id=node_id, limit=limit,
+                min_conf=min_confidence, entitlements=entitlements,
+            ).data()
     finally:
         driver.close()
     return shape_subgraph(rows)
