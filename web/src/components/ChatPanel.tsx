@@ -89,6 +89,11 @@ export function ChatPanel({ onNavigate, firm }: { onNavigate: (t: NavTarget) => 
 
       {r && (
         <div className="stack" style={{ marginTop: 16 }}>
+          {r.plan && /fallback|offline|unavailable/i.test(r.plan.strategy) && (
+            <div className="pill warn" style={{ alignSelf: 'flex-start' }}>
+              <Icon name="risk" size={13} /> Graph / Cypher path unavailable — answered from document text only. If every question returns the same answer with no Cypher, the API can't reach the extraction model (check its LLM connectivity / proxy).
+            </div>
+          )}
           {r.withheld_count > 0 && (
             <div className="pill warn" style={{ alignSelf: 'flex-start' }}>
               <Icon name="lock" size={13} /> {r.withheld_count} source{r.withheld_count > 1 ? 's' : ''} withheld — internal-information wall is ON
