@@ -116,7 +116,14 @@ class Synthesizer:
         if analytics is not None and analytics.rows:
             parts.append(_analytics_sentence(plan_fund, analytics))
         elif cres is not None and cres.source == "graph" and cres.rows:
-            parts.append(f"The graph returned {len(cres.rows)} row(s) for this query.")
+            preview = cres.rows[:25]
+            rows_txt = "; ".join(
+                ", ".join(f"{k}={v}" for k, v in row.items()) for row in preview
+            )
+            more = "" if len(cres.rows) <= 25 else f" (+{len(cres.rows) - 25} more row(s))"
+            parts.append(
+                f"The graph query returned {len(cres.rows)} row(s): {rows_txt}{more}."
+            )
         elif cres is not None and cres.source == "text_vector":
             parts.append(f"No structured graph answer; {cres.note}.")
 
