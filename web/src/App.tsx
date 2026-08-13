@@ -141,7 +141,7 @@ export default function App() {
         <main className="content">
           <div className="content-inner" key={reloadKey}>
             <Suspense fallback={<div className="loading"><span className="spinner" />Loading…</div>}>
-              {active === 'chat' && <ChatPanel onNavigate={navigate} firm={activeFirm} />}
+              {active === 'chat' && <ChatPanel onNavigate={navigate} firm={activeFirm} apiMode={health?.mode} />}
               {active === 'graph' && <GraphExplorer focus={focus} themeKey={themeKey} firm={activeFirm} />}
               {active === 'docs' && <DocViewer focus={focus} firm={activeFirm} />}
               {active === 'ingest' && <IngestPanel />}

@@ -13,7 +13,7 @@ const SUGGESTIONS = [
   "What is driving NVIDIA's customer-concentration risk right now?",
 ]
 
-export function ChatPanel({ onNavigate, firm }: { onNavigate: (t: NavTarget) => void; firm?: string | null }) {
+export function ChatPanel({ onNavigate, firm, apiMode }: { onNavigate: (t: NavTarget) => void; firm?: string | null; apiMode?: string }) {
   const [question, setQuestion] = useState('')
   const [mode, setMode] = useState<QueryMode>('side_by_side')
   const [wall, setWall] = useState(true)
@@ -91,7 +91,10 @@ export function ChatPanel({ onNavigate, firm }: { onNavigate: (t: NavTarget) => 
         <div className="stack" style={{ marginTop: 16 }}>
           {r.plan && /fallback|offline|unavailable/i.test(r.plan.strategy) && (
             <div className="pill warn" style={{ alignSelf: 'flex-start' }}>
-              <Icon name="risk" size={13} /> Graph / Cypher path unavailable — answered from document text only. If every question returns the same answer with no Cypher, the API can't reach the extraction model (check its LLM connectivity / proxy).
+              <Icon name="risk" size={13} /> Graph / Cypher path unavailable — answered from document text only.{' '}
+              {apiMode === 'stub'
+                ? 'Stub mode runs an offline model with no text-to-Cypher — rebuild in full mode (make bootstrap MODE=full) for graph queries.'
+                : "If every question returns the same answer with no Cypher, the API can't reach the extraction model (check its LLM connectivity / proxy)."}
             </div>
           )}
           {r.withheld_count > 0 && (
