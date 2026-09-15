@@ -1,0 +1,15 @@
+{
+  "name": "fabric-entitlement-console",
+  "version": "0.1.0",
+  "description": "POC console: manage row- and column-level access on a Fabric warehouse through an entitlement layer",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mssql": "^11.0.1"
+  }
+}
