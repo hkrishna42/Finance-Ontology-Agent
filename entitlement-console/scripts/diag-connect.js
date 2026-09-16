@@ -34,8 +34,43 @@ function attempt(label, authentication, encrypt) {
   });
 }
 
+// Ask Fabric what this sign-in can see and whether .env names one of those warehouses exactly.
+// A wrong hostname still resolves (wildcard DNS) and passes TLS (shared gateway cert) — the gateway
+// only hangs up at LOGIN7 — so this is the check that catches a typo or the wrong tenant.
+async function fabricInventory() {
+  let tok;
+  try {
+    tok = execFileSync('az', ['account', 'get-access-token', '--resource', 'https://api.fabric.microsoft.com', '-o', 'tsv', '--query', 'accessToken'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (e) { return console.log(`Fabric API token        FAIL ${String(e.message).split('\n')[0]}`); }
+  const get = async (p) => {
+    const r = await fetch('https://api.fabric.microsoft.com/v1' + p, { headers: { Authorization: `Bearer ${tok}` } });
+    if (!r.ok) throw new Error(`HTTP ${r.status} on ${p}`);
+    return (await r.json()).value || [];
+  };
+  try {
+    const workspaces = await get('/workspaces');
+    console.log(`Fabric API              OK   ${workspaces.length} workspace(s) visible to this sign-in (tenant of \`az login\`)`);
+    let match = false;
+    for (const w of workspaces) {
+      const items = [];
+      try { for (const x of await get(`/workspaces/${w.id}/warehouses`)) items.push(['warehouse', x.displayName, x.properties && x.properties.connectionString]); } catch (e) { items.push(['warehouses', e.message, '']); }
+      try { for (const x of await get(`/workspaces/${w.id}/lakehouses`)) items.push(['lakehouse (read-only endpoint)', x.displayName, x.properties && x.properties.sqlEndpointProperties && x.properties.sqlEndpointProperties.connectionString]); } catch (_) {}
+      for (const [kind, name, cs] of items) {
+        const hit = kind === 'warehouse' && String(cs).toLowerCase() === server.toLowerCase() && String(name).toLowerCase() === database.toLowerCase();
+        match = match || hit;
+        console.log(`  ${hit ? '>>' : '  '} ${w.displayName} · ${kind} "${name}" · ${cs || '(no SQL endpoint yet)'}`);
+      }
+    }
+    console.log(match
+      ? '  .env matches a warehouse this sign-in can see.'
+      : '  NO warehouse matches FABRIC_SQL_SERVER + FABRIC_SQL_DATABASE in .env — copy the values from a warehouse line above, or `az login --tenant <id>` to the tenant that holds it.');
+  } catch (e) { console.log(`Fabric API              FAIL ${e.message}`); }
+}
+
 (async () => {
   console.log(`Target: ${server} / ${database}  (node ${process.version}, tedious ${require('tedious/package.json').version})\n`);
+  await fabricInventory();
+  console.log('');
   let token = null;
   try {
     const t0 = Date.now();
