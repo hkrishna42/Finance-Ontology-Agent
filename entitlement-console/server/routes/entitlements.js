@@ -1,6 +1,7 @@
 const express = require('express');
 const { q } = require('../db');
 const { assertEmail } = require('../validate');
+const { logChange, changed } = require('../audit');
 
 const router = express.Router();
 
@@ -30,11 +31,12 @@ router.post('/entitlements', async (req, res, next) => {
     if (!legal.includes(region)) {
       return res.status(400).json({ error: `Region must be one of: ${legal.join(', ')}` });
     }
-    await q(
+    const r = await q(
       `IF NOT EXISTS (SELECT 1 FROM gov.entitlement WHERE user_email = @email AND region = @region)
        INSERT INTO gov.entitlement (user_email, region) VALUES (@email, @region)`,
       { email, region }
     );
+    if (changed(r)) await logChange('row-rule.add', `${email} → ${region}`); // duplicate add = no-op, not evidence
     res.json({ ok: true, applied: 'instantly — the row filter reads this table on every query' });
   } catch (err) { next(err); }
 });
@@ -43,7 +45,8 @@ router.delete('/entitlements', async (req, res, next) => {
   try {
     const email = assertEmail(String(req.body.user_email || '').trim());
     const region = String(req.body.region || '').trim();
-    await q(`DELETE FROM gov.entitlement WHERE user_email = @email AND region = @region`, { email, region });
+    const r = await q(`DELETE FROM gov.entitlement WHERE user_email = @email AND region = @region`, { email, region });
+    if (changed(r)) await logChange('row-rule.remove', `${email} → ${region}`);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

@@ -1,6 +1,7 @@
 const express = require('express');
 const { q } = require('../db');
 const { assertEmail, bracket, assertTableExists, assertColumnsExist } = require('../validate');
+const { logChange, AUDIT_SQL } = require('../audit');
 
 const router = express.Router();
 
@@ -82,6 +83,11 @@ router.post('/column-rules', async (req, res, next) => {
     } else if (columns.length > 0) {
       await run(`GRANT SELECT ON OBJECT::${obj} (${columns.map(bracket).join(', ')}) TO ${u};`);
     }
+
+    // 4) Evidence: one change_log row carrying the SQL above. Logged first so it shows in `executed` too.
+    const summary = columns.length === known.size ? 'all columns' : columns.length ? columns.join(', ') : 'no columns (access revoked)';
+    log.push(`${AUDIT_SQL}; -- @action = 'column-rule.push'`);
+    await logChange('column-rule.push', `${email} on ${schema}.${table} → ${summary}\n${log.join('\n')}`);
 
     res.json({
       ok: true,

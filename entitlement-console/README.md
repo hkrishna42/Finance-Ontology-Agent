@@ -9,6 +9,7 @@ administrator control **row-level and column-level access** through an **entitle
 - set **column rules** per user per table (an exact allow-list of columns) and **push** them —
   the console runs the `REVOKE` / `GRANT` statements for you and shows you exactly what it ran
 - **preview** what any user would see before telling them
+- see the **evidence**: every change made through the console — who, when, what, and the SQL that ran
 - one-click **setup** that creates the whole demo (sales table, entitlement table,
   row-filter function, security policy, masking) — idempotent, safe to re-run
 
@@ -52,6 +53,7 @@ warehouse objects exist and you're entitled to `All` regions so you keep sight o
 | **Row rules** | the entitlement table as a form. Add `person@… → EU`. Applies instantly |
 | **Column rules** | tick the exact columns a user may see, **Push rule** runs REVOKE+GRANT and shows the SQL |
 | **Preview as user** | simulated result: regions, visible/struck-out columns, top-50 rows |
+| **Evidence** | every change made through the console — who, when, what, including the SQL that ran (console actions only; direct SQL edits are not captured) |
 
 **Blush background = unpushed change** (same convention as the deck: blush means "new / not yet enforced").
 

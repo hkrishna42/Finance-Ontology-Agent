@@ -21,7 +21,7 @@ This folder is self-contained inside a shared public repo. Only touch `entitleme
 ## Architecture (authoritative — don't rediscover)
 
 Node 18+, Express, `mssql`, `dotenv`. **No build step, no framework** — `public/` is vanilla JS served
-statically by `server/index.js`, which mounts four routers under `/api`. Its error handler adds
+statically by `server/index.js`, which mounts five routers under `/api`. Its error handler adds
 friendly hints (`NOT_CONFIGURED` → point at `.env`; auth-pattern match → `az login` / SPN vars) and
 forwards any `err.executed` SQL log.
 
@@ -36,19 +36,21 @@ forwards any `err.executed` SQL log.
   **Identifiers are whitelisted, data values are parameterized.** That split is the injection
   defense — preserve it in every new statement.
 - Routes (`server/routes/`): `setup.js` (health, status, setup, preview), `meta.js` (tables, columns),
-  `entitlements.js` (row rules + regions), `columnRules.js` (column grants).
+  `entitlements.js` (row rules + regions), `columnRules.js` (column grants), `changes.js` (evidence feed).
+- `server/audit.js` — `logChange(action, detail)`: one parameterized INSERT into `gov.change_log`; actor is `USER_NAME()` server-side.
 
 ### API surface
 
 `GET /api/health` · `GET /api/status` · `POST /api/setup` · `GET /api/preview?email&schema&table` ·
 `GET /api/tables` · `GET /api/columns?schema&table` · `GET/POST/DELETE /api/entitlements` ·
 `GET /api/regions` · `GET /api/column-rules?schema&table` ·
-`POST /api/column-rules {user_email, schema, table, columns[]}`
+`POST /api/column-rules {user_email, schema, table, columns[]}` · `GET /api/changes?limit`
 
 ### What setup creates (idempotent)
 
 Schemas `sales`/`gov`/`sec` · `sales.orders` seeded with 6 fictional rows (US/EU/APAC × 2) including
-`customer_ssn` and `account_number` · `gov.entitlement(user_email, region)` · predicate
+`customer_ssn` and `account_number` · `gov.entitlement(user_email, region)` ·
+`gov.change_log(at, actor, action, detail)` (the audit trail every mutation writes to) · predicate
 `sec.fn_rls_region` (`WITH SCHEMABINDING`, matches `USER_NAME()`, honors literal `'All'`) · security
 policy `sec.orders_rls` (filter predicate on `sales.orders`, STATE = ON) · dynamic data mask
 `partial(0,"XXXX-",4)` on `account_number` · finally entitles the connected identity to `All`
@@ -58,7 +60,10 @@ policy `sec.orders_rls` (filter predicate on `sales.orders`, STATE = ON) · dyna
 
 `CREATE USER ... FROM EXTERNAL PROVIDER` if the principal is missing → `REVOKE` object-level and any
 column-level SELECT → `GRANT` the exact allow-list (table-wide grant when the list equals all columns).
-Every statement is appended to `executed` and returned to the UI.
+Every statement is appended to `executed` and returned to the UI, and the push ends with one
+`gov.change_log` row (`column-rule.push`) whose detail carries that same SQL. The trail records console
+actions only — direct SQL edits to `gov.entitlement` are not captured — and the operator identity can edit
+the table: evidence for a POC, not tamper-proof.
 
 ### Preview is simulated
 
@@ -70,7 +75,7 @@ Every statement is appended to `executed` and returned to the UI.
 Arial. Tokens: ink `#2B2F33`, gray `#5A6068`, hairline `#D9DBDE`, wash `#F1F2F4`, crimson `#A6242B`,
 navy `#232F3E`, amber `#E08A3C`, blush `#F7E4E3` (line `#E4C4C2`).
 **Blush background = "new / not yet enforced"** — a pending, unpushed change. Never repurpose blush.
-Five hash-routed views: Overview & setup · Tables & columns · Row rules · Column rules · Preview as user.
+Six hash-routed views: Overview & setup · Tables & columns · Row rules · Column rules · Preview as user · Evidence.
 Navy status bar with amber label; toast for confirmations. Escape interpolated content with `esc()`;
 render server `executed` logs verbatim in `.sqllog` blocks. No frameworks, bundlers, or CDN deps.
 
@@ -118,7 +123,7 @@ push and any new scope.
 No-DB suite (always runnable): server boots without `.env`; `GET /api/health` → `configured:false`;
 `GET /` serves the UI (catches the `Cannot GET /` regression); invalid email → 400; identifier with
 `]` → 400. DB suite (needs `.env` + `az login`): `POST /api/setup` twice → both fully ok;
-`/api/status` shows all four objects; preview for a P3-style email returns only entitled regions and
+`/api/status` shows all five objects; preview for a P3-style email returns only entitled regions and
 hides ungranted columns.
 
 `npm run verify` (`scripts/verify.js`, no extra deps) runs the no-DB suite always, the DB suite when

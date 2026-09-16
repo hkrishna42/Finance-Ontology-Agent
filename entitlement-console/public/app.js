@@ -76,6 +76,7 @@ async function renderOverview() {
         ${row('gov.entitlement (the entitlement layer)', s.connected && s.objects.entitlement)}
         ${row('Row-level security policy (reads the entitlement table)', s.connected && s.objects.policy)}
         ${row('Masking on account_number', s.connected && s.objects.masking)}
+        ${row('gov.change_log (evidence of every change)', s.connected && s.objects.changeLog)}
       </table>
       <div class="formrow" style="margin-top:14px">
         <button id="btnSetup" ${s.connected ? '' : 'disabled'}>Set up demo objects</button>
@@ -282,8 +283,37 @@ async function renderPreview() {
   };
 }
 
+async function renderEvidence() {
+  view.innerHTML = `
+    <h1>Evidence</h1>
+    <div class="pagesub">Every change made through this console, as recorded in gov.change_log — who, when, what, and the SQL that ran. Read-only.</div>
+    <div class="lbl">Recent changes</div>
+    <div class="panel">
+      <div class="formrow"><button class="ghost small" id="eRefresh">Refresh</button></div>
+      <div id="eList" style="margin-top:14px">Loading…</div>
+    </div>`;
+  const when = (iso) => { const d = new Date(iso); return isNaN(d) ? esc(iso) : d.toISOString().slice(0, 19).replace('T', ' ') + ' UTC'; };
+  const detail = (s) => {
+    const [summary, ...sql] = String(s).trimEnd().split('\n');
+    return esc(summary) + (sql.length ? `<div class="sqllog">${esc(sql.join('\n'))}</div>` : '');
+  };
+  const load = async () => {
+    try {
+      const changes = await api('/changes?limit=100');
+      $('#eList').innerHTML = changes.length
+        ? `<table><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th></tr>${changes
+            .map((c) => `<tr><td style="white-space:nowrap">${when(c.at)}</td><td>${esc(c.actor)}</td>
+              <td style="white-space:nowrap"><span class="badge plain">${esc(String(c.action).toUpperCase())}</span></td><td>${detail(c.detail)}</td></tr>`)
+            .join('')}</table>`
+        : '<span class="note">No changes recorded yet. Run setup on the Overview page, then make a change.</span>';
+    } catch (e) { $('#eList').innerHTML = errBox(e); }
+  };
+  $('#eRefresh').onclick = load;
+  load();
+}
+
 /* ── Router ────────────────────────────────────────────── */
-const routes = { overview: renderOverview, tables: renderTables, rows: renderRows, columns: renderColumns, preview: renderPreview };
+const routes = { overview: renderOverview, tables: renderTables, rows: renderRows, columns: renderColumns, preview: renderPreview, evidence: renderEvidence };
 async function route() {
   const name = (location.hash || '#overview').slice(1);
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === name));

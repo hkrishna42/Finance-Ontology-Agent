@@ -10,6 +10,7 @@ app.use('/api', require('./routes/setup'));
 app.use('/api', require('./routes/meta'));
 app.use('/api', require('./routes/entitlements'));
 app.use('/api', require('./routes/columnRules'));
+app.use('/api', require('./routes/changes'));
 
 // Error handler: friendly messages, plus whatever SQL was executed before failure.
 app.use((err, _req, res, _next) => {
