@@ -62,6 +62,7 @@ input[type=text], input[type=email], select{
 .chip{display:inline-block; border:1px solid var(--hair); padding:2px 8px; font-size:12px; margin:2px 4px 2px 0; background:#fff}
 .chip.off{color:var(--gray); text-decoration:line-through; background:var(--wash)}
 .badge{font-size:10px; font-weight:700; letter-spacing:.08em; padding:2px 6px; border:1px solid var(--blushline); background:var(--blush); color:var(--crimson)}
+.badge.plain{border-color:var(--hair); background:var(--wash); color:var(--gray)}
 .check{color:#2E7D46; font-weight:700}
 .cross{color:var(--crimson); font-weight:700}
 .note{color:var(--gray); font-size:12.5px; margin-top:10px}
