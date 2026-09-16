@@ -50,8 +50,14 @@ async function fabricInventory() {
   try {
     const workspaces = await get('/workspaces');
     console.log(`Fabric API              OK   ${workspaces.length} workspace(s) visible to this sign-in (tenant of \`az login\`)`);
+    let capacities = [];
+    try { capacities = await get('/capacities'); } catch (_) {}
     let match = false;
     for (const w of workspaces) {
+      const cap = capacities.find((c) => c.id === w.capacityId);
+      const capText = cap ? `${cap.displayName} (${cap.sku}, ${cap.region}) state ${cap.state}${cap.state === 'Active' ? '' : '  <-- not Active: SQL endpoints in this workspace are unreachable until it is resumed'}`
+        : (w.capacityId ? `${w.capacityId} (not visible to this sign-in — ask an admin whether it is Active)` : 'none (Pro workspace, no Fabric capacity)');
+      console.log(`  workspace "${w.displayName}" · capacity ${capText}`);
       const items = [];
       try { for (const x of await get(`/workspaces/${w.id}/warehouses`)) items.push(['warehouse', x.displayName, x.properties && x.properties.connectionString]); } catch (e) { items.push(['warehouses', e.message, '']); }
       try { for (const x of await get(`/workspaces/${w.id}/lakehouses`)) items.push(['lakehouse (read-only endpoint)', x.displayName, x.properties && x.properties.sqlEndpointProperties && x.properties.sqlEndpointProperties.connectionString]); } catch (_) {}
