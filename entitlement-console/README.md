@@ -117,3 +117,21 @@ server/
 public/
   index.html, styles.css, app.js   the console UI (no framework, no build)
 ```
+
+## 9. Verify (`npm run verify`)
+
+A dependency-free harness (`scripts/verify.js`) that boots the server on a free port and proves
+the access rules instead of assuming them. One line per check, then a summary; exit code 1 only
+if something **FAIL**s.
+
+- **Static checks** — always run, no `.env` needed: server boots, UI is served, bad emails and
+  `]`-containing identifiers are rejected with 400, `/api/status` answers.
+- **Warehouse checks** — need a connected `.env` (+ `az login`): setup runs twice and is fully ok,
+  every object in `/api/status` is present, the operator is entitled to `All`.
+- **Persona matrix** — needs `VERIFY_P3_EMAIL` + `VERIFY_P4_EMAIL` in `.env` (`VERIFY_P2_EMAIL`
+  optional): **writes to the warehouse** — replaces those personas' row rules and their SELECT grants
+  on `sales.orders` through the same API the UI uses — then checks what they see via `/api/preview` — **simulated** by the operator identity — including the
+  headline flip EU → US and back.
+- **SKIP** = could not be proven here, with the reason. **MANUAL** = print the exact SQL a human runs
+  signed in as that persona (P2's denial, P3's masking, P4's column denial); never counted as a
+  failure — masking and permission errors only show on a real sign-in.

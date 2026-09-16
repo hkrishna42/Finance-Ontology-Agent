@@ -5,7 +5,8 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node server/index.js"
+    "dev": "node server/index.js",
+    "verify": "node scripts/verify.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

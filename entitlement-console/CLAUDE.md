@@ -120,3 +120,9 @@ No-DB suite (always runnable): server boots without `.env`; `GET /api/health` �
 `]` → 400. DB suite (needs `.env` + `az login`): `POST /api/setup` twice → both fully ok;
 `/api/status` shows all four objects; preview for a P3-style email returns only entitled regions and
 hides ungranted columns.
+
+`npm run verify` (`scripts/verify.js`, no extra deps) runs the no-DB suite always, the DB suite when
+`/api/status` reports connected, and the persona matrix when `VERIFY_P3_EMAIL` + `VERIFY_P4_EMAIL`
+are set (P2 optional) — simulated via `/api/preview`; masking and real denials stay MANUAL rows with
+the SQL to run. Unprovable checks are SKIP with a reason, never omitted (a boot failure ends the run);
+exit 1 only on FAIL.
