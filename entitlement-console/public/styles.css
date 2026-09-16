@@ -1,0 +1,78 @@
+:root{
+  --paper:#FFFFFF; --ink:#2B2F33; --gray:#5A6068; --hair:#D9DBDE; --wash:#F1F2F4;
+  --crimson:#A6242B; --navy:#232F3E; --amber:#E08A3C; --blush:#F7E4E3; --blushline:#E4C4C2;
+}
+*{box-sizing:border-box; margin:0}
+html,body{height:100%}
+body{
+  font-family:Arial, Helvetica, sans-serif; color:var(--ink); background:var(--paper);
+  display:grid; grid-template-columns:236px 1fr; font-size:14px; line-height:1.45;
+}
+/* rail */
+.rail{border-right:1px solid var(--hair); padding:22px 0; display:flex; flex-direction:column; min-height:100vh}
+.brand{display:flex; gap:10px; padding:0 20px 22px; align-items:flex-start}
+.brand-mark{width:10px; height:34px; background:var(--crimson); flex:none; margin-top:2px}
+.brand-name{font-weight:700; font-size:15px}
+.brand-sub{font-size:11px; color:var(--gray); margin-top:2px}
+#nav{display:flex; flex-direction:column}
+#nav a{
+  color:var(--ink); text-decoration:none; padding:10px 20px; border-left:3px solid transparent; font-size:13.5px;
+}
+#nav a:hover{background:var(--wash)}
+#nav a.active{border-left-color:var(--crimson); font-weight:700; background:var(--wash)}
+.rail-foot{margin-top:auto; padding:14px 20px 0; font-size:11px; color:var(--gray); border-top:1px solid var(--hair)}
+/* main */
+main{min-width:0; display:flex; flex-direction:column}
+.statusbar{
+  background:var(--navy); color:#fff; padding:10px 26px; display:flex; gap:14px; align-items:baseline; font-size:13px;
+}
+.status-label{color:var(--amber); font-weight:700; font-size:10px; letter-spacing:.14em}
+.view{padding:26px; max-width:1080px; width:100%}
+h1{font-size:20px; margin-bottom:4px}
+.pagesub{color:var(--gray); font-style:italic; font-size:12.5px; margin-bottom:22px}
+.lbl{font-size:10px; letter-spacing:.13em; color:var(--crimson); font-weight:700; text-transform:uppercase; margin:20px 0 8px}
+.panel{border:1px solid var(--hair); background:var(--paper); padding:16px}
+.panel.pending{background:var(--blush); border-color:var(--blushline)}
+.panel + .lbl{margin-top:26px}
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+@media (max-width:900px){ body{grid-template-columns:1fr} .rail{display:none} .grid2{grid-template-columns:1fr} }
+/* tables */
+table{width:100%; border-collapse:collapse; font-size:13px}
+th{color:var(--gray); font-weight:700; text-align:left; border-bottom:1px solid var(--hair); padding:7px 8px; font-size:12px}
+td{border-bottom:1px solid var(--wash); padding:7px 8px; vertical-align:top}
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:var(--wash)}
+tr.selected td{background:var(--wash); font-weight:700}
+tr.flash td{animation:flash .9s ease-out}
+@keyframes flash{from{background:var(--blush)} to{background:transparent}}
+@media (prefers-reduced-motion: reduce){ tr.flash td{animation:none} }
+/* controls */
+button{
+  font:inherit; font-weight:700; border:1px solid var(--navy); background:var(--navy); color:#fff;
+  padding:8px 16px; cursor:pointer;
+}
+button.ghost{background:#fff; color:var(--ink); border-color:var(--hair)}
+button.small{padding:4px 10px; font-size:12px; font-weight:400}
+button:disabled{opacity:.45; cursor:not-allowed}
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid var(--crimson); outline-offset:1px}
+input[type=text], input[type=email], select{
+  font:inherit; padding:8px 10px; border:1px solid var(--hair); background:#fff; min-width:220px;
+}
+.formrow{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+.chip{display:inline-block; border:1px solid var(--hair); padding:2px 8px; font-size:12px; margin:2px 4px 2px 0; background:#fff}
+.chip.off{color:var(--gray); text-decoration:line-through; background:var(--wash)}
+.badge{font-size:10px; font-weight:700; letter-spacing:.08em; padding:2px 6px; border:1px solid var(--blushline); background:var(--blush); color:var(--crimson)}
+.check{color:#2E7D46; font-weight:700}
+.cross{color:var(--crimson); font-weight:700}
+.note{color:var(--gray); font-size:12.5px; margin-top:10px}
+.sqllog{background:var(--wash); border:1px solid var(--hair); padding:12px; font:12px/1.5 "Courier New", monospace; white-space:pre-wrap; word-break:break-word; margin-top:12px}
+.colgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:6px 16px; margin-top:6px}
+.colgrid label{display:flex; gap:8px; align-items:center; font-size:13px; padding:4px 2px}
+.err{border:1px solid var(--blushline); background:var(--blush); color:var(--ink); padding:10px 12px; margin:12px 0; font-size:13px}
+/* toast */
+.toast{
+  position:fixed; left:260px; right:26px; bottom:22px; background:var(--navy); color:#fff;
+  padding:12px 18px; display:flex; gap:14px; align-items:baseline; font-size:13.5px; font-weight:700;
+}
+.toast-label{color:var(--amber); font-size:10px; letter-spacing:.14em}
+@media (max-width:900px){ .toast{left:16px} }

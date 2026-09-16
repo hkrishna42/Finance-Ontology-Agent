@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Entitlement Console — Governed Data Access for Microsoft Fabric</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<aside class="rail">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <div>
+      <div class="brand-name">Entitlement Console</div>
+      <div class="brand-sub">Governed data access · Microsoft Fabric</div>
+    </div>
+  </div>
+  <nav id="nav">
+    <a href="#overview" data-view="overview">Overview &amp; setup</a>
+    <a href="#tables" data-view="tables">Tables &amp; columns</a>
+    <a href="#rows" data-view="rows">Row rules</a>
+    <a href="#columns" data-view="columns">Column rules</a>
+    <a href="#preview" data-view="preview">Preview as user</a>
+  </nav>
+  <div class="rail-foot" id="railFoot">Not connected</div>
+</aside>
+
+<main>
+  <div class="statusbar" id="statusbar">
+    <span class="status-label">STATUS</span>
+    <span id="statusText">Checking connection…</span>
+  </div>
+  <div id="view" class="view"></div>
+</main>
+
+<div class="toast" id="toast" hidden>
+  <span class="toast-label" id="toastLabel">DONE</span>
+  <span id="toastText"></span>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
