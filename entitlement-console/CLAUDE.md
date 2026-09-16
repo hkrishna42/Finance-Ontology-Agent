@@ -20,16 +20,16 @@ This folder is self-contained inside a shared public repo. Only touch `entitleme
 
 ## Architecture (authoritative — don't rediscover)
 
-Node 18+, Express, `mssql`, `dotenv`. **No build step, no framework** — `public/` is vanilla JS served
+Node 18+, Express, `dotenv`. **No build step, no framework** — `public/` is vanilla JS served
 statically by `server/index.js`, which mounts five routers under `/api`. Its error handler adds
 friendly hints (`NOT_CONFIGURED` → point at `.env`; auth-pattern match → `az login` / SPN vars) and
 forwards any `err.executed` SQL log.
 
-- `server/db.js` — lazy singleton `ConnectionPool` against the **warehouse SQL endpoint**
-  (`FABRIC_SQL_SERVER`, `FABRIC_SQL_DATABASE`, port 1433, encrypt). Auth is **Entra-only**:
-  `azure-active-directory-default` (picks up `az login`) unless all of
-  `AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET` are set → service-principal secret.
-  There are no SQL passwords in Fabric; never add one.
+- `server/db.js` — one `q(text, params)` contract over **two interchangeable backends** (tedious/`mssql`
+  cannot reach Fabric — tediousjs/tedious#1563). `sqlcmd`: shells out to go-sqlcmd (default when the CLI is
+  present; values validated+escaped into SQL, `@named`→literals). `odbc`: `odbc` npm + ODBC Driver 18
+  (`@named`→positional `?`, bound). Auto-select, override with `EC_DB_DRIVER`. Auth is **Entra-only**
+  (`az login` / ActiveDirectoryDefault, or the `AZURE_*` service principal). No SQL passwords in Fabric.
 - `server/validate.js` — `assertEmail` (regex + length), `bracket()` (T-SQL identifier quoting that
   **rejects `]`** so the quote can't be escaped), `assertTableExists` / `assertColumnsExist`
   (whitelist every identifier against `sys.*` before it is interpolated into DDL).

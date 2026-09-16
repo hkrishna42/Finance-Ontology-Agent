@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "mssql": "^11.0.1"
+    "express": "^4.19.2"
+  },
+  "optionalDependencies": {
+    "odbc": "^2.4.9"
   }
 }

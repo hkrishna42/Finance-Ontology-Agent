@@ -11,9 +11,14 @@ function assertEmail(email) {
   return email;
 }
 
-// Bracket-quote an identifier for T-SQL. Rejects ']' so the quote cannot be escaped.
+// Bracket-quote an identifier for T-SQL. Rejects ']' so the quote cannot be escaped, and rejects
+// control chars and the '$(' sqlcmd-variable trigger so a bracketed identifier can't carry a
+// newline (→ a ':' meta-command / GO on its own line) or '$(VAR)' into the sqlcmd backend's -Q text.
 function bracket(name) {
-  if (typeof name !== 'string' || name.length === 0 || name.length > 128 || name.includes(']')) {
+  if (
+    typeof name !== 'string' || name.length === 0 || name.length > 128 ||
+    name.includes(']') || /[\x00-\x1f]/.test(name) || name.includes('$(')
+  ) {
     const e = new Error(`Invalid identifier: ${name}`);
     e.status = 400;
     throw e;

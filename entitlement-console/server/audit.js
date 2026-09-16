@@ -5,10 +5,12 @@ const { q } = require('./db');
 const AUDIT_SQL = `INSERT INTO gov.change_log (at, actor, action, detail) VALUES (GETUTCDATE(), USER_NAME(), @action, @detail)`;
 
 async function logChange(action, detail) {
-  // varchar(4000) is 4000 bytes under the UTF-8 collation: keep a margin and mark the cut.
-  const text = String(detail);
+  // Collapse newlines to ' | ' so the sqlcmd backend can inline the value safely (its lit() rejects
+  // CR/LF, which would otherwise let an injected line start a ':' meta-command / GO). Then keep a
+  // byte margin under varchar(4000) (UTF-8 collation counts bytes) and mark any cut.
+  const text = String(detail).replace(/\r?\n/g, ' | ');
   try {
-    await q(AUDIT_SQL, { action, detail: text.length > 3900 ? text.slice(0, 3900) + '\n-- [truncated]' : text });
+    await q(AUDIT_SQL, { action, detail: text.length > 3900 ? text.slice(0, 3900) + ' -- [truncated]' : text });
   } catch (err) {
     throw new Error(`Change applied but not logged (${err.message.replace(/\.$/, '')}) — run setup on the Overview page to create gov.change_log, or grant INSERT on it to this identity.`);
   }

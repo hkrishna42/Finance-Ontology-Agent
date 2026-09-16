@@ -45,6 +45,11 @@ router.delete('/entitlements', async (req, res, next) => {
   try {
     const email = assertEmail(String(req.body.user_email || '').trim());
     const region = String(req.body.region || '').trim();
+    const legal = (await q(`SELECT DISTINCT region FROM sales.orders`)).recordset.map((x) => x.region);
+    legal.push('All');
+    if (!legal.includes(region)) {
+      return res.status(400).json({ error: `Region must be one of: ${legal.join(', ')}` });
+    }
     const r = await q(`DELETE FROM gov.entitlement WHERE user_email = @email AND region = @region`, { email, region });
     if (changed(r)) await logChange('row-rule.remove', `${email} → ${region}`);
     res.json({ ok: true });

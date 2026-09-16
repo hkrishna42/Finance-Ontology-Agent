@@ -11,6 +11,20 @@ account you use must be able to create tables and grant permissions on the wareh
 | Node.js 18+ | `node --version` |
 | Azure CLI | Mac `brew install azure-cli` · Windows `winget install Microsoft.AzureCLI` · then `az --version` |
 | git + this repo | `git clone https://github.com/hkrishna42/Finance-Ontology-Agent.git` (or `git pull --ff-only` on an existing clone) |
+| A Fabric-capable SQL client (one of two) | **(a)** the `sqlcmd` CLI you likely already have (`sqlcmd --version`) — zero extra install; **or (b)** Microsoft ODBC Driver 18: `brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release` then `HOMEBREW_ACCEPT_EULA=Y brew install msodbcsql18`. See the note below |
+
+
+> **Why a separate SQL client?** Fabric's warehouse gateway does not accept the pure-JS `tedious`/`mssql`
+> driver — a Microsoft-confirmed limitation ([tediousjs/tedious#1563](https://github.com/tediousjs/tedious/issues/1563)):
+> the login is dropped right after LOGIN7 with `socket hang up`. So `server/db.js` talks to Fabric through
+> one of two backends, auto-selected at startup and overridable with `EC_DB_DRIVER`:
+>
+> - **`sqlcmd`** (default when the CLI is present) — shells out to go-sqlcmd (go-mssqldb), which *does* speak
+>   Fabric. **Nothing to install** beyond the CLI; uses `az login`.
+> - **`odbc`** — the `odbc` npm module + ODBC Driver 18 (same transport as `.NET`/`pyodbc`). Binds parameters
+>   natively. Set `EC_DB_DRIVER=odbc` in `.env`; `npm ci` builds the native module (needs the driver + unixODBC first).
+>
+> Whichever you have, it works. `az login` is the credential for both.
 
 ## 1. One-time prerequisites in Fabric (portal, by you)
 
@@ -54,7 +68,10 @@ If it says **Not connected**, the error text tells you which of these it is:
 | `getaddrinfo ENOTFOUND` | wrong `FABRIC_SQL_SERVER` |
 | `login` / `token` / `AADSTS` | `az login` not done, or done with an account that has no access to the warehouse |
 | `Cannot open database` | wrong `FABRIC_SQL_DATABASE` |
-| `Connection lost - socket hang up` | the gateway closed the connection mid-login. Run `node scripts/diag-connect.js` — it tries the app's connection plus two variants and prints the driver's state log; send that output |
+| `sqlcmd not found on PATH` | the sqlcmd backend needs the CLI — install go-sqlcmd, or switch to ODBC with `EC_DB_DRIVER=odbc` (+ driver) |
+| `Can't open lib 'ODBC Driver 18 …' : file not found` | ODBC backend selected but the driver isn't installed — do the driver step in section 0, then `npm ci` |
+| `AADSTS…` / `Login failed` / `permission denied` | auth — `az login` as an account the warehouse is shared with, or set the `AZURE_*` service-principal vars |
+| `Connection lost - socket hang up` | you pinned the old `mssql`/`tedious` path; it cannot reach Fabric — use a backend above. `node scripts/diag-connect.js` documents that tedious symptom |
 
 ## 4. Bootstrap the demo
 
