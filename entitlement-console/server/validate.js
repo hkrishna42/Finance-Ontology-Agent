@@ -22,6 +22,8 @@ function bracket(name) {
 }
 
 async function assertTableExists(schema, table) {
+  // Syntax first (rejects ']', empty, >128) — no DB round-trip for garbage input.
+  bracket(schema); bracket(table);
   const r = await q(
     `SELECT 1 AS ok FROM sys.tables t JOIN sys.schemas s ON s.schema_id = t.schema_id
      WHERE s.name = @schema AND t.name = @table`,
@@ -35,6 +37,7 @@ async function assertTableExists(schema, table) {
 }
 
 async function assertColumnsExist(schema, table, columns) {
+  columns.forEach(bracket);
   const r = await q(
     `SELECT c.name FROM sys.columns c
      JOIN sys.tables t ON t.object_id = c.object_id
