@@ -35,11 +35,22 @@ const BOOTSTRAP = [
            (6,'APAC','Mei Tanaka','666-77-8888','JP3501650000123456789', 430.00,'2026-09-06')`,
   },
   {
+    // Migrate the old single-dimension schema (user_email, region) to the row-grant schema
+    // (user_email, order_id). SCHEMABINDING forces the teardown order: policy → function → table.
+    step: 'Migrate gov.entitlement (region → order_id)',
+    sql: `IF COL_LENGTH('gov.entitlement','region') IS NOT NULL
+          BEGIN
+            IF EXISTS (SELECT 1 FROM sys.security_policies WHERE name = 'orders_rls') EXEC('DROP SECURITY POLICY sec.orders_rls');
+            IF OBJECT_ID('sec.fn_rls_region','IF') IS NOT NULL EXEC('DROP FUNCTION sec.fn_rls_region');
+            DROP TABLE gov.entitlement;
+          END`,
+  },
+  {
     step: 'Table gov.entitlement',
     sql: `IF OBJECT_ID('gov.entitlement','U') IS NULL
           CREATE TABLE gov.entitlement (
             user_email varchar(256) NOT NULL,
-            region     varchar(16)  NOT NULL
+            order_id   int          NOT NULL
           )`,
   },
   {
@@ -53,13 +64,14 @@ const BOOTSTRAP = [
           )`,
   },
   {
-    step: 'Predicate sec.fn_rls_region',
-    sql: `IF OBJECT_ID('sec.fn_rls_region','IF') IS NULL
-          EXEC('CREATE FUNCTION sec.fn_rls_region (@region varchar(16))
+    // Row filter keyed on order_id: a user sees a row if they hold a grant for it, or the -1 "all rows" grant.
+    step: 'Predicate sec.fn_rls_orders',
+    sql: `IF OBJECT_ID('sec.fn_rls_orders','IF') IS NULL
+          EXEC('CREATE FUNCTION sec.fn_rls_orders (@order_id int)
                 RETURNS TABLE WITH SCHEMABINDING AS RETURN
                 SELECT 1 AS ok FROM gov.entitlement e
                 WHERE e.user_email = USER_NAME()
-                  AND (e.region = @region OR e.region = ''All'')')`,
+                  AND (e.order_id = @order_id OR e.order_id = -1)')`,
   },
   {
     // Idempotent AND convergent: create if missing, else force STATE = ON if a policy by that name
@@ -68,7 +80,7 @@ const BOOTSTRAP = [
     step: 'Security policy sec.orders_rls',
     sql: `IF NOT EXISTS (SELECT 1 FROM sys.security_policies WHERE name = 'orders_rls')
           EXEC('CREATE SECURITY POLICY sec.orders_rls
-                ADD FILTER PREDICATE sec.fn_rls_region(region) ON sales.orders
+                ADD FILTER PREDICATE sec.fn_rls_orders(order_id) ON sales.orders
                 WITH (STATE = ON)')
           ELSE IF EXISTS (SELECT 1 FROM sys.security_policies WHERE name = 'orders_rls' AND is_enabled = 0)
           ALTER SECURITY POLICY sec.orders_rls WITH (STATE = ON)`,
@@ -133,18 +145,18 @@ router.post('/setup', async (_req, res) => {
   try {
     me = (await q('SELECT USER_NAME() AS me')).recordset[0].me;
     const r = await q(
-      `IF NOT EXISTS (SELECT 1 FROM gov.entitlement WHERE user_email = @me AND region = 'All')
-       INSERT INTO gov.entitlement (user_email, region) VALUES (@me, 'All')`,
+      `IF NOT EXISTS (SELECT 1 FROM gov.entitlement WHERE user_email = @me AND order_id = -1)
+       INSERT INTO gov.entitlement (user_email, order_id) VALUES (@me, -1)`,
       { me }
     );
     entitled = changed(r);
-    results.push({ step: `Entitle ${me} to All`, ok: true });
+    results.push({ step: `Entitle ${me} to all rows`, ok: true });
   } catch (err) {
     results.push({ step: 'Entitle connected identity', ok: false, error: err.message });
   }
   // Evidence: the self-entitle only when it inserted a row; the run itself always. Never fails setup.
   try {
-    if (entitled) await logChange('row-rule.add', `${me} → All`);
+    if (entitled) await logChange('row-rule.add', `${me} → row ALL`);
     await logChange('setup.run', `${results.filter((r) => r.ok).length}/${results.length} steps ok`);
     results.push({ step: 'Write change log', ok: true });
   } catch (err) {
@@ -188,15 +200,20 @@ router.get('/preview', async (req, res, next) => {
     const tableWide = grants.some((g) => Number(g.minor_id) === 0);
     const visibleColumns = tableWide ? allCols : grants.filter((g) => g.col).map((g) => g.col);
 
-    const regions = (
-      await q(`SELECT region FROM gov.entitlement WHERE user_email = @email`, { email })
-    ).recordset.map((r) => r.region);
-    const hasAll = regions.includes('All');
+    // Row visibility comes from the entitlement table, keyed on order_id (-1 = all rows). The row
+    // filter only applies to sales.orders (the one table the security policy is on); other tables
+    // aren't row-filtered, so the user sees every row their column grants allow.
+    const rlsTable = schema === 'sales' && table === 'orders';
+    const ids = rlsTable
+      ? (await q(`SELECT order_id FROM gov.entitlement WHERE user_email = @email`, { email })).recordset.map((r) => Number(r.order_id))
+      : [-1];
+    const hasAll = ids.includes(-1);
+    const rowIds = ids.filter((id) => id !== -1);
 
     let rows = [];
-    if (visibleColumns.length && (regions.length || hasAll)) {
+    if (visibleColumns.length && (hasAll || rowIds.length)) {
       const colSql = visibleColumns.map((c) => bracket(c)).join(', ');
-      const where = hasAll ? '' : `WHERE region IN (SELECT region FROM gov.entitlement WHERE user_email = @email)`;
+      const where = hasAll ? '' : `WHERE order_id IN (SELECT order_id FROM gov.entitlement WHERE user_email = @email AND order_id <> -1)`;
       rows = (
         await q(`SELECT TOP 50 ${colSql} FROM ${bracket(schema)}.${bracket(table)} ${where}`, { email })
       ).recordset;
@@ -206,7 +223,8 @@ router.get('/preview', async (req, res, next) => {
       simulated: true,
       note: 'Computed from grants + entitlement rows by the console identity. Masking is not simulated — a real sign-in by this user would also see masked values.',
       email, schema, table,
-      regions: hasAll ? ['All'] : regions,
+      allRows: hasAll,
+      rowIds: hasAll ? 'all' : rowIds,
       visibleColumns,
       hiddenColumns: allCols.filter((c) => !visibleColumns.includes(c)),
       rows,

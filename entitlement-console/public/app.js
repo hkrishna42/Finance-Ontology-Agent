@@ -80,7 +80,7 @@ async function renderOverview() {
       </table>
       <div class="formrow" style="margin-top:14px">
         <button id="btnSetup" ${s.connected ? '' : 'disabled'}>Set up demo objects</button>
-        <span class="note">Safe to run more than once — each step checks itself first. Also entitles the connected identity to All regions.</span>
+        <span class="note">Safe to run more than once — each step checks itself first. Also entitles the connected identity to all rows.</span>
       </div>
       <div id="setupOut"></div>
     </div>`;
@@ -133,121 +133,114 @@ async function renderTables() {
   } catch (e) { $('#tblList').innerHTML = errBox(e); }
 }
 
-async function renderRows() {
+async function renderAccess() {
   view.innerHTML = `
-    <h1>Row rules</h1>
-    <div class="pagesub">Who may see which regions. Changes apply instantly — the row filter reads this table on every query.</div>
-    <div class="lbl">Add a rule</div>
+    <h1>User access</h1>
+    <div class="pagesub">Pick a user, then choose the columns and the rows they may see. Column changes run REVOKE + GRANT on the warehouse; row changes update the entitlement table (the filter reads it live).</div>
+    <div class="lbl">User</div>
     <div class="panel">
       <div class="formrow">
-        <input type="email" id="rEmail" placeholder="person@company.com" list="knownUsers" />
-        <select id="rRegion"></select>
-        <button id="rAdd">Add rule</button>
+        <input type="email" id="aEmail" placeholder="person@company.com" list="knownUsers" />
+        <button id="aLoad">Load access</button>
       </div>
       <datalist id="knownUsers"></datalist>
-      <div id="rErr"></div>
+      <div id="aErr"></div>
     </div>
-    <div class="lbl">Current entitlements</div>
-    <div class="panel" id="rList">Loading…</div>`;
-  const load = async () => {
-    try {
-      const [ents, regions] = await Promise.all([api('/entitlements'), api('/regions')]);
-      $('#rRegion').innerHTML = regions.map((r) => `<option>${esc(r)}</option>`).join('');
-      $('#knownUsers').innerHTML = [...new Set(ents.map((e) => e.user_email))].map((u) => `<option value="${esc(u)}">`).join('');
-      $('#rList').innerHTML = ents.length
-        ? `<table><tr><th>User</th><th>Region</th><th></th></tr>${ents
-            .map((e) => `<tr><td>${esc(e.user_email)}</td><td>${esc(e.region)}</td>
-              <td><button class="ghost small" data-u="${esc(e.user_email)}" data-r="${esc(e.region)}">Remove</button></td></tr>`)
-            .join('')}</table>`
-        : '<span class="note">No rules yet. Run setup on the Overview page, then add one above.</span>';
-      $('#rList').querySelectorAll('button').forEach((b) => {
-        b.onclick = async () => {
-          await api('/entitlements', { method: 'DELETE', body: { user_email: b.dataset.u, region: b.dataset.r } });
-          toast('REMOVED', `${b.dataset.u} no longer sees ${b.dataset.r}.`);
-          load();
-        };
-      });
-    } catch (e) { $('#rList').innerHTML = errBox(e); }
-  };
-  $('#rAdd').onclick = async () => {
-    $('#rErr').innerHTML = '';
-    try {
-      const r = await api('/entitlements', { method: 'POST', body: { user_email: $('#rEmail').value.trim(), region: $('#rRegion').value } });
-      toast('APPLIED', `Row rule active — ${r.applied}.`);
-      $('#rEmail').value = '';
-      load();
-    } catch (e) { $('#rErr').innerHTML = errBox(e); }
-  };
-  load();
-}
-
-async function renderColumns() {
-  view.innerHTML = `
-    <h1>Column rules</h1>
-    <div class="pagesub">Tick exactly the columns a user may see on a table, then push. Pushing runs REVOKE + GRANT on the warehouse.</div>
-    <div class="lbl">Rule</div>
-    <div class="panel" id="cPanel">
-      <div class="formrow">
-        <select id="cTable"></select>
-        <input type="email" id="cEmail" placeholder="person@company.com" list="knownUsers2" />
-        <button class="ghost" id="cLoad">Load current access</button>
+    <div id="aBody" hidden>
+      <div class="lbl">Columns this user may see</div>
+      <div class="panel" id="cPanel">
+        <div id="aCols"></div>
+        <div class="formrow" style="margin-top:14px"><button id="cPush" disabled>Push column access</button><span class="note" id="cState"></span></div>
+        <div id="cOut"></div>
       </div>
-      <datalist id="knownUsers2"></datalist>
-      <div id="cCols"></div>
-      <div class="formrow" style="margin-top:14px">
-        <button id="cPush" disabled>Push rule to warehouse</button>
-        <span class="note" id="cState"></span>
+      <div class="lbl">Rows this user may see</div>
+      <div class="panel" id="rPanel">
+        <label style="display:block; margin-bottom:10px"><input type="checkbox" id="rAll" /> All rows (full access)</label>
+        <div id="aRows"></div>
+        <div class="formrow" style="margin-top:14px"><button id="rApply" disabled>Apply row access</button><span class="note" id="rState"></span></div>
+        <div id="rOut"></div>
       </div>
-      <div id="cOut"></div>
     </div>`;
-  const tables = (await api('/tables')).filter((t) => !t.governance);
-  $('#cTable').innerHTML = tables.map((t) => `<option value="${esc(t.schema)}|${esc(t.table)}">${esc(t.schema)}.${esc(t.table)}</option>`).join('');
+  const SCHEMA = 'sales', TABLE = 'orders';
+  const setColDirty = (d) => { $('#cPanel').classList.toggle('pending', d); $('#cPush').disabled = !d; $('#cState').textContent = d ? 'Unpushed — blush means not yet enforced.' : ''; };
+  const setRowDirty = (d) => { $('#rPanel').classList.toggle('pending', d); $('#rApply').disabled = !d; $('#rState').textContent = d ? 'Unpushed — blush means not yet enforced.' : ''; };
+  const syncRowDisabled = () => { const all = $('#rAll').checked; $('#aRows').querySelectorAll('.rowck').forEach((c) => (c.disabled = all)); };
+
   try {
     const ents = await api('/entitlements');
-    $('#knownUsers2').innerHTML = [...new Set(ents.map((e) => e.user_email))].map((u) => `<option value="${esc(u)}">`).join('');
+    $('#knownUsers').innerHTML = [...new Set(ents.map((e) => e.user_email))].map((u) => `<option value="${esc(u)}">`).join('');
   } catch (_) {}
 
-  let dirty = false;
-  const setDirty = (d) => {
-    dirty = d;
-    $('#cPanel').classList.toggle('pending', d);
-    $('#cPush').disabled = !d;
-    $('#cState').textContent = d ? 'Unpushed changes — blush means not yet enforced.' : '';
-  };
-
-  $('#cLoad').onclick = async () => {
-    $('#cOut').innerHTML = '';
-    const [schema, table] = $('#cTable').value.split('|');
-    const email = $('#cEmail').value.trim();
-    if (!email) { $('#cOut').innerHTML = '<div class="err">Enter a user email first.</div>'; return; }
+  $('#aLoad').onclick = async () => {
+    const email = $('#aEmail').value.trim();
+    $('#aErr').innerHTML = '';
+    if (!email) { $('#aErr').innerHTML = '<div class="err">Enter a user email first.</div>'; return; }
     try {
-      const [cols, grants] = await Promise.all([
-        api(`/columns?schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`),
-        api(`/column-rules?schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`),
+      const [cols, grants, rows, ents] = await Promise.all([
+        api(`/columns?schema=${SCHEMA}&table=${TABLE}`),
+        api(`/column-rules?schema=${SCHEMA}&table=${TABLE}`),
+        api('/rows'),
+        api('/entitlements'),
       ]);
+      // Columns
       const mine = grants.find((g) => g.principal.toLowerCase() === email.toLowerCase());
-      const has = (c) => (mine ? mine.tableWide || mine.columns.includes(c) : false);
-      $('#cCols').innerHTML = `<div class="colgrid">${cols
-        .map((c) => `<label><input type="checkbox" value="${esc(c.name)}" ${has(c.name) ? 'checked' : ''}/> ${esc(c.name)}
-          ${c.masked ? '<span class="badge">MASKED</span>' : ''}</label>`)
-        .join('')}</div>
-        <div class="note">${mine ? (mine.tableWide ? 'Currently: all columns.' : `Currently: ${mine.columns.length} column(s).`) : 'Currently: no access to this table.'}</div>`;
-      $('#cCols').querySelectorAll('input').forEach((i) => (i.onchange = () => setDirty(true)));
-      setDirty(false);
-    } catch (e) { $('#cOut').innerHTML = errBox(e); }
+      const hasCol = (c) => (mine ? mine.tableWide || mine.columns.includes(c) : false);
+      $('#aCols').innerHTML = `<div class="colgrid">${cols
+        .map((c) => `<label><input type="checkbox" value="${esc(c.name)}" ${hasCol(c.name) ? 'checked' : ''}/> ${esc(c.name)} ${c.masked ? '<span class="badge">MASKED</span>' : ''}</label>`)
+        .join('')}</div>`;
+      $('#aCols').querySelectorAll('input').forEach((i) => (i.onchange = () => setColDirty(true)));
+      setColDirty(false);
+      // Rows
+      const mineRows = ents.filter((e) => e.user_email.toLowerCase() === email.toLowerCase()).map((e) => e.order_id);
+      const all = mineRows.includes(-1);
+      $('#rAll').checked = all;
+      $('#aRows').innerHTML = `<table><tr><th></th><th>order_id</th><th>region</th><th>customer_name</th><th>amount</th><th>order_date</th></tr>${rows
+        .map((r) => `<tr><td><input type="checkbox" class="rowck" value="${r.order_id}" ${all || mineRows.includes(r.order_id) ? 'checked' : ''} ${all ? 'disabled' : ''}/></td><td>${r.order_id}</td><td>${esc(r.region)}</td><td>${esc(r.customer_name)}</td><td>${esc(String(r.amount))}</td><td>${esc(String(r.order_date))}</td></tr>`)
+        .join('')}</table>`;
+      $('#rAll').onchange = () => { syncRowDisabled(); setRowDirty(true); };
+      $('#aRows').querySelectorAll('.rowck').forEach((c) => (c.onchange = () => setRowDirty(true)));
+      syncRowDisabled();
+      setRowDirty(false);
+      $('#aBody').hidden = false;
+      $('#aBody').dataset.rowsBefore = JSON.stringify({ all, ids: mineRows.filter((id) => id !== -1) });
+    } catch (e) { $('#aErr').innerHTML = errBox(e); }
   };
 
   $('#cPush').onclick = async () => {
-    const [schema, table] = $('#cTable').value.split('|');
-    const email = $('#cEmail').value.trim();
-    const columns = [...$('#cCols').querySelectorAll('input:checked')].map((i) => i.value);
+    const email = $('#aEmail').value.trim();
+    const columns = [...$('#aCols').querySelectorAll('input:checked')].map((i) => i.value);
     $('#cPush').disabled = true;
     try {
-      const r = await api('/column-rules', { method: 'POST', body: { user_email: email, schema, table, columns } });
+      const r = await api('/column-rules', { method: 'POST', body: { user_email: email, schema: SCHEMA, table: TABLE, columns } });
       $('#cOut').innerHTML = `<div class="sqllog">${esc(r.executed.join('\n'))}</div><div class="note">${esc(r.reminder)}</div>`;
-      toast('PUSHED', `${email} → ${columns.length ? columns.length + ' column(s)' : 'no access'} on ${schema}.${table}`);
-      setDirty(false);
-    } catch (e) { $('#cOut').innerHTML = errBox(e); setDirty(true); }
+      toast('PUSHED', `${email} → ${columns.length ? columns.length + ' column(s)' : 'no access'}`);
+      setColDirty(false);
+    } catch (e) { $('#cOut').innerHTML = errBox(e); setColDirty(true); }
+  };
+
+  $('#rApply').onclick = async () => {
+    const email = $('#aEmail').value.trim();
+    const before = JSON.parse($('#aBody').dataset.rowsBefore);
+    const allNow = $('#rAll').checked;
+    const idsNow = allNow ? [] : [...$('#aRows').querySelectorAll('.rowck:checked')].map((c) => Number(c.value));
+    $('#rApply').disabled = true;
+    const log = [];
+    const grant = async (id, label) => { await api('/entitlements', { method: 'POST', body: { user_email: email, order_id: id } }); log.push('grant ' + label); };
+    const revoke = async (id, label) => { await api('/entitlements', { method: 'DELETE', body: { user_email: email, order_id: id } }); log.push('revoke ' + label); };
+    try {
+      if (allNow && !before.all) await grant(-1, 'ALL rows');
+      if (!allNow && before.all) await revoke(-1, 'ALL rows');
+      if (allNow) {
+        for (const id of before.ids) await revoke(id, 'row ' + id); // tidy explicit grants under all-access
+      } else {
+        for (const id of idsNow) if (!before.ids.includes(id)) await grant(id, 'row ' + id);
+        for (const id of before.ids) if (!idsNow.includes(id)) await revoke(id, 'row ' + id);
+      }
+      $('#rOut').innerHTML = `<div class="sqllog">${esc(log.join('\n') || 'no change')}</div>`;
+      toast('APPLIED', `${email} → ${allNow ? 'all rows' : idsNow.length + ' row(s)'}`);
+      $('#aBody').dataset.rowsBefore = JSON.stringify({ all: allNow, ids: idsNow });
+      setRowDirty(false);
+    } catch (e) { $('#rOut').innerHTML = errBox(e); setRowDirty(true); }
   };
 }
 
@@ -270,14 +263,13 @@ async function renderPreview() {
       const head = r.visibleColumns.map((c) => `<th>${esc(c)}</th>`).join('');
       const body = r.rows.map((row) => `<tr>${r.visibleColumns.map((c) => `<td>${esc(row[c] ?? '')}</td>`).join('')}</tr>`).join('');
       $('#pOut').innerHTML = `
-        <div class="lbl">Regions</div><div class="panel">${r.regions.length ? r.regions.map((x) => `<span class="chip">${esc(x)}</span>`).join('') : '<span class="note">No row rules — this user sees zero rows.</span>'}</div>
         <div class="lbl">Columns</div><div class="panel">
           ${r.visibleColumns.map((c) => `<span class="chip">${esc(c)}</span>`).join('')}
           ${r.hiddenColumns.map((c) => `<span class="chip off">${esc(c)}</span>`).join('')}
           ${r.visibleColumns.length ? '' : '<div class="note">No column grants — queries would be denied.</div>'}
         </div>
-        <div class="lbl">Rows (top 50, simulated)</div>
-        <div class="panel">${r.rows.length ? `<table><tr>${head}</tr>${body}</table>` : '<span class="note">No rows.</span>'}
+        <div class="lbl">Rows (${r.allRows ? 'all rows' : r.rows.length + ' row(s)'}, simulated)</div>
+        <div class="panel">${r.rows.length ? `<table><tr>${head}</tr>${body}</table>` : '<span class="note">No rows — this user has no row grants.</span>'}
         <div class="note">${esc(r.note)}</div></div>`;
     } catch (e) { $('#pOut').innerHTML = errBox(e); }
   };
@@ -313,7 +305,7 @@ async function renderEvidence() {
 }
 
 /* ── Router ────────────────────────────────────────────── */
-const routes = { overview: renderOverview, tables: renderTables, rows: renderRows, columns: renderColumns, preview: renderPreview, evidence: renderEvidence };
+const routes = { overview: renderOverview, tables: renderTables, access: renderAccess, preview: renderPreview, evidence: renderEvidence };
 async function route() {
   const name = (location.hash || '#overview').slice(1);
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === name));

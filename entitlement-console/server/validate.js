@@ -61,4 +61,15 @@ async function assertColumnsExist(schema, table, columns) {
   return known;
 }
 
-module.exports = { assertEmail, bracket, assertTableExists, assertColumnsExist };
+// Row key: an integer order_id, or -1 meaning "all rows".
+function assertOrderId(v) {
+  const n = Number(v);
+  if (!Number.isInteger(n)) {
+    const e = new Error(`order_id must be an integer: ${v}`);
+    e.status = 400;
+    throw e;
+  }
+  return n;
+}
+
+module.exports = { assertEmail, bracket, assertTableExists, assertColumnsExist, assertOrderId };
