@@ -1,6 +1,7 @@
 const express = require('express');
 const { q, authMode } = require('../db');
 const { assertEmail, bracket, assertTableExists } = require('../validate');
+const { logChange, changed } = require('../audit');
 
 const router = express.Router();
 
@@ -39,6 +40,16 @@ const BOOTSTRAP = [
           CREATE TABLE gov.entitlement (
             user_email varchar(256) NOT NULL,
             region     varchar(16)  NOT NULL
+          )`,
+  },
+  {
+    step: 'Table gov.change_log',
+    sql: `IF OBJECT_ID('gov.change_log','U') IS NULL
+          CREATE TABLE gov.change_log (
+            at     datetime2(3)  NOT NULL,
+            actor  varchar(256)  NOT NULL,
+            action varchar(32)   NOT NULL,
+            detail varchar(4000) NOT NULL
           )`,
   },
   {
@@ -88,6 +99,7 @@ router.get('/status', async (_req, res) => {
       objects: {
         salesOrders: await check(`SELECT COUNT(*) n FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE s.name='sales' AND t.name='orders'`),
         entitlement: await check(`SELECT COUNT(*) n FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE s.name='gov' AND t.name='entitlement'`),
+        changeLog: await check(`SELECT COUNT(*) n FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE s.name='gov' AND t.name='change_log'`),
         policy: await check(`SELECT COUNT(*) n FROM sys.security_policies WHERE name='orders_rls' AND is_enabled=1`),
         masking: await check(`SELECT COUNT(*) n FROM sys.masked_columns mc JOIN sys.objects o ON o.object_id=mc.object_id WHERE o.name='orders' AND mc.name='account_number'`),
       },
@@ -112,16 +124,26 @@ router.post('/setup', async (_req, res) => {
     }
   }
   // Give the connected identity 'All' so the console operator keeps sight of the data.
+  let me, entitled = false;
   try {
-    const me = (await q('SELECT USER_NAME() AS me')).recordset[0].me;
-    await q(
+    me = (await q('SELECT USER_NAME() AS me')).recordset[0].me;
+    const r = await q(
       `IF NOT EXISTS (SELECT 1 FROM gov.entitlement WHERE user_email = @me AND region = 'All')
        INSERT INTO gov.entitlement (user_email, region) VALUES (@me, 'All')`,
       { me }
     );
+    entitled = changed(r);
     results.push({ step: `Entitle ${me} to All`, ok: true });
   } catch (err) {
     results.push({ step: 'Entitle connected identity', ok: false, error: err.message });
+  }
+  // Evidence: the self-entitle only when it inserted a row; the run itself always. Never fails setup.
+  try {
+    if (entitled) await logChange('row-rule.add', `${me} → All`);
+    await logChange('setup.run', `${results.filter((r) => r.ok).length}/${results.length} steps ok`);
+    results.push({ step: 'Write change log', ok: true });
+  } catch (err) {
+    results.push({ step: 'Write change log', ok: false, error: err.message });
   }
   res.json({ results, ok: results.every((r) => r.ok) });
 });
