@@ -50,12 +50,17 @@ router.post('/column-rules', async (req, res, next) => {
     const u = bracket(email);
     const obj = `${bracket(schema)}.${bracket(table)}`;
 
-    // 1) Ensure the database principal exists.
+    // 1) The principal must already exist. Fabric creates the SQL principal when the warehouse is
+    //    shared with the user (Fabric portal → Share → their email); it does NOT support
+    //    CREATE USER … FROM EXTERNAL PROVIDER (Msg 22424). So if it's missing, tell the operator to
+    //    share first rather than emitting an unsupported statement.
     const exists = (
       await q(`SELECT COUNT(*) n FROM sys.database_principals WHERE name = @email`, { email })
     ).recordset[0].n > 0;
     if (!exists) {
-      await run(`CREATE USER ${u} FROM EXTERNAL PROVIDER;`);
+      const e = new Error(`${email} is not a user in this warehouse yet. In the Fabric portal, Share the warehouse with them (their email, no extra checkboxes) — Fabric creates the SQL principal on share — then push again.`);
+      e.status = 400;
+      throw e;
     }
 
     // 2) Clear existing SELECT grants (object-level, then any column-level).
