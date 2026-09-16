@@ -12,7 +12,19 @@ const database = process.env.FABRIC_SQL_DATABASE;
 if (!server || !database) { console.log('FABRIC_SQL_SERVER / FABRIC_SQL_DATABASE not set in .env'); process.exit(1); }
 const SCOPE = 'https://database.windows.net//.default';
 
-function attempt(label, authentication, encrypt) {
+// tedious stamps FEDAUTH workflow 0x02 ("integrated") for azure-active-directory-default; SqlClient
+// sends 0x03 for Default/Interactive/MI. Fabric's gateway is not Azure SQL's — let a probe pick the byte.
+let workflowOverride = null;
+const Login7 = (m => m.default || m)(require('tedious/lib/login7-payload'));
+const origFeatureExt = Login7.prototype.buildFeatureExt;
+Login7.prototype.buildFeatureExt = function () {
+  const b = origFeatureExt.call(this);
+  if (workflowOverride !== null && this.fedAuth && this.fedAuth.type === 'ADAL') b[6] = workflowOverride;
+  return b;
+};
+
+function attempt(label, authentication, encrypt, workflow = null) {
+  workflowOverride = workflow;
   return new Promise((resolve) => {
     const log = [];
     const t0 = Date.now();
@@ -95,8 +107,10 @@ async function fabricInventory() {
     ['TDS 8.0: encrypt strict, azure-active-directory-default', { type: 'azure-active-directory-default', options: {} }, 'strict'],
   ];
   if (token) variants.push(['token fetched before connecting: encrypt true, azure-active-directory-access-token', { type: 'azure-active-directory-access-token', options: { token } }, true]);
-  for (const [label, auth, encrypt] of variants) {
-    const r = await attempt(label, auth, encrypt);
+  variants.push(['FEDAUTH workflow 0x03 (what SqlClient sends for Default): encrypt true', { type: 'azure-active-directory-default', options: {} }, true, 0x03]);
+  variants.push(['FEDAUTH workflow 0x01 (username/password flow byte): encrypt true', { type: 'azure-active-directory-default', options: {} }, true, 0x01]);
+  for (const [label, auth, encrypt, workflow] of variants) {
+    const r = await attempt(label, auth, encrypt, workflow);
     console.log(`\n${r.ok ? 'OK  ' : 'FAIL'} ${label}\n     ${r.msg} (${r.ms} ms)`);
     if (!r.ok) console.log(r.log.slice(-14).map((l) => '     | ' + l).join('\n'));
   }
