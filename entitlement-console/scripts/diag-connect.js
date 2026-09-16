@@ -12,26 +12,48 @@ const database = process.env.FABRIC_SQL_DATABASE;
 if (!server || !database) { console.log('FABRIC_SQL_SERVER / FABRIC_SQL_DATABASE not set in .env'); process.exit(1); }
 const SCOPE = 'https://database.windows.net//.default';
 
-// tedious stamps FEDAUTH workflow 0x02 ("integrated") for azure-active-directory-default; SqlClient
-// sends 0x03 for Default/Interactive/MI. Fabric's gateway is not Azure SQL's — let a probe pick the byte.
-let workflowOverride = null;
+// LOGIN7 tweaks, applied by monkeypatching tedious's serializer. Compared with go-mssqldb (which logs
+// in to this warehouse) tedious differs in: FEDAUTH workflow byte (0x02 vs 0x03), OptionFlags1
+// (no fUseDB, plus INIT_DB_FATAL), OptionFlags2 (no fODBC), OptionFlags3 (UnknownCollationHandling),
+// and it writes the FeatureExt block right after ServerName instead of last. Each probe flips some.
+let tweak = {};
 const Login7 = (m => m.default || m)(require('tedious/lib/login7-payload'));
 const origFeatureExt = Login7.prototype.buildFeatureExt;
 Login7.prototype.buildFeatureExt = function () {
-  const b = origFeatureExt.call(this);
-  if (workflowOverride !== null && this.fedAuth && this.fedAuth.type === 'ADAL') b[6] = workflowOverride;
+  let b = origFeatureExt.call(this);
+  if (tweak.workflow != null && this.fedAuth && this.fedAuth.type === 'ADAL') b[6] = tweak.workflow;
+  if (tweak.noUtf8 && b[b.length - 7] === 0x0a) b = Buffer.concat([b.subarray(0, b.length - 7), b.subarray(b.length - 1)]); // drop the UTF8_SUPPORT entry
   return b;
 };
+const origToBuffer = Login7.prototype.toBuffer;
+Login7.prototype.toBuffer = function () {
+  if (tweak.libraryName) this.libraryName = tweak.libraryName;
+  if (tweak.clientProgVer) this.clientProgVer = tweak.clientProgVer;
+  let d = origToBuffer.call(this);
+  if (tweak.flags1 != null) d.writeUInt8(tweak.flags1, 24);
+  if (tweak.flags2 != null) d.writeUInt8(tweak.flags2, 25);
+  if (tweak.flags3 != null) d.writeUInt8(tweak.flags3, 27);
+  if (tweak.tz != null) d.writeInt32LE(tweak.tz, 28);
+  if (tweak.extLast) {
+    // Move the 4-byte pointer + FeatureExt block (currently right after ServerName) to the end.
+    const E = d.readUInt16LE(56), L = d.readUInt16LE(60) - (E + 4), M = 4 + L;
+    d = Buffer.concat([d.subarray(0, E), d.subarray(E + M), d.subarray(E, E + M)]);
+    for (const ib of [60, 64, 68, 78, 82, 86]) { const v = d.readUInt16LE(ib); if (v >= E + M) d.writeUInt16LE(v - M, ib); }
+    d.writeUInt16LE(d.length - M, 56);        // ibExtension -> pointer now sits just before the block
+    d.writeUInt32LE(d.length - L, d.length - M); // pointer -> block at the very end
+  }
+  return d;
+};
 
-function attempt(label, authentication, encrypt, workflow = null) {
-  workflowOverride = workflow;
+function attempt(label, authentication, encrypt, t = {}) {
+  tweak = t;
   return new Promise((resolve) => {
     const log = [];
     const t0 = Date.now();
     let settled = false;
     const conn = new Connection({
       server, authentication,
-      options: { database, port: 1433, encrypt, trustServerCertificate: false, connectTimeout: 30000, requestTimeout: 30000, debug: { packet: true, token: true } },
+      options: { database, port: 1433, encrypt, trustServerCertificate: false, connectTimeout: 30000, requestTimeout: 30000, debug: { packet: true, token: true }, ...(t.options || {}) },
     });
     conn.on('debug', (m) => log.push(m));
     const done = (ok, msg) => { if (settled) return; settled = true; try { conn.close(); } catch (_) {} resolve({ label, ok, msg, ms: Date.now() - t0, log }); };
@@ -102,15 +124,23 @@ async function fabricInventory() {
     console.log(`DefaultAzureCredential  OK   ${Date.now() - t0} ms  (the driver fetches this mid-login)`);
   } catch (e) { console.log(`DefaultAzureCredential  FAIL ${String(e.message).split('\n')[0]}`); }
 
+  const AAD = { type: 'azure-active-directory-default', options: {} };
+  const GO_FLAGS = { flags1: 0xA0, flags2: 0x02, flags3: 0x10 };            // go-mssqldb: fUseDB|fSetLang · fODBC · fExtension
   const variants = [
-    ['app config: encrypt true, azure-active-directory-default', { type: 'azure-active-directory-default', options: {} }, true],
-    ['TDS 8.0: encrypt strict, azure-active-directory-default', { type: 'azure-active-directory-default', options: {} }, 'strict'],
+    ['app config (tedious as-is): encrypt true, azure-active-directory-default', AAD, true, {}],
+    ['TDS 8.0 strict encryption, tedious as-is', AAD, 'strict', {}],
+    ['fODBC flag only (OptionFlags2 0x02, as SqlClient and go-mssqldb send)', AAD, true, { flags2: 0x02 }],
+    ['no UTF8_SUPPORT feature entry (go-mssqldb sends only FEDAUTH)', AAD, true, { noUtf8: true }],
+    ['flags: exact go-mssqldb bytes (A0 / 02 / 10)', AAD, true, GO_FLAGS],
+    ['FeatureExt (pointer + block) moved to the end of LOGIN7', AAD, true, { extLast: true }],
+    ['FEDAUTH workflow 0x03 (SqlClient/go-mssqldb value for Default)', AAD, true, { workflow: 0x03 }],
+    ['go-mssqldb flags + FeatureExt last + workflow 0x03', AAD, true, { ...GO_FLAGS, extLast: true, workflow: 0x03 }],
+    ['full go-mssqldb mimic (+ CtlIntName go-mssqldb, appName sqlcmd, empty language, progver)', AAD, true,
+      { ...GO_FLAGS, extLast: true, workflow: 0x03, noUtf8: true, tz: 0, libraryName: 'go-mssqldb', clientProgVer: 0x01000a00, options: { appName: 'sqlcmd', language: '' } }],
   ];
-  if (token) variants.push(['token fetched before connecting: encrypt true, azure-active-directory-access-token', { type: 'azure-active-directory-access-token', options: { token } }, true]);
-  variants.push(['FEDAUTH workflow 0x03 (what SqlClient sends for Default): encrypt true', { type: 'azure-active-directory-default', options: {} }, true, 0x03]);
-  variants.push(['FEDAUTH workflow 0x01 (username/password flow byte): encrypt true', { type: 'azure-active-directory-default', options: {} }, true, 0x01]);
-  for (const [label, auth, encrypt, workflow] of variants) {
-    const r = await attempt(label, auth, encrypt, workflow);
+  if (token) variants.push(['token fetched before connecting (SECURITYTOKEN) + go-mssqldb flags + FeatureExt last', { type: 'azure-active-directory-access-token', options: { token } }, true, { ...GO_FLAGS, extLast: true }]);
+  for (const [label, auth, encrypt, t] of variants) {
+    const r = await attempt(label, auth, encrypt, t);
     console.log(`\n${r.ok ? 'OK  ' : 'FAIL'} ${label}\n     ${r.msg} (${r.ms} ms)`);
     if (!r.ok) console.log(r.log.slice(-14).map((l) => '     | ' + l).join('\n'));
   }
