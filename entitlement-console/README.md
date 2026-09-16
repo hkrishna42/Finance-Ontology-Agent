@@ -14,6 +14,7 @@ administrator control **row-level and column-level access** through an **entitle
   row-filter function, security policy, masking) — idempotent, safe to re-run
 
 No build step. Node + Express + vanilla JS. One `.env` file and it runs.
+Step-by-step for a fresh machine, including the Fabric-side human steps: **[RUNBOOK.md](RUNBOOK.md)**.
 
 ---
 
