@@ -54,6 +54,7 @@ If it says **Not connected**, the error text tells you which of these it is:
 | `getaddrinfo ENOTFOUND` | wrong `FABRIC_SQL_SERVER` |
 | `login` / `token` / `AADSTS` | `az login` not done, or done with an account that has no access to the warehouse |
 | `Cannot open database` | wrong `FABRIC_SQL_DATABASE` |
+| `Connection lost - socket hang up` | the gateway closed the connection mid-login. Run `node scripts/diag-connect.js` — it tries the app's connection plus two variants and prints the driver's state log; send that output |
 
 ## 4. Bootstrap the demo
 
