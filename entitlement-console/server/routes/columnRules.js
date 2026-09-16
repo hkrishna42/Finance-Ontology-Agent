@@ -41,7 +41,8 @@ router.post('/column-rules', async (req, res, next) => {
     const email = assertEmail(String(req.body.user_email || '').trim());
     const schema = String(req.body.schema || '');
     const table = String(req.body.table || '');
-    const columns = Array.isArray(req.body.columns) ? req.body.columns.map(String) : [];
+    const columns = Array.isArray(req.body.columns) ? [...new Set(req.body.columns.map(String))] : [];
+    columns.forEach(bracket); // Syntax before the table lookup — fail fast on garbage columns.
     await assertTableExists(schema, table);
     const known = await assertColumnsExist(schema, table, columns);
 
