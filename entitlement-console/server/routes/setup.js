@@ -62,11 +62,16 @@ const BOOTSTRAP = [
                   AND (e.region = @region OR e.region = ''All'')')`,
   },
   {
+    // Idempotent AND convergent: create if missing, else force STATE = ON if a policy by that name
+    // exists but is disabled — otherwise the IF NOT EXISTS guard would skip a policy left OFF and RLS
+    // would stay inert (the row filter never applies). ALTER SECURITY POLICY is honored on Fabric.
     step: 'Security policy sec.orders_rls',
     sql: `IF NOT EXISTS (SELECT 1 FROM sys.security_policies WHERE name = 'orders_rls')
           EXEC('CREATE SECURITY POLICY sec.orders_rls
                 ADD FILTER PREDICATE sec.fn_rls_region(region) ON sales.orders
-                WITH (STATE = ON)')`,
+                WITH (STATE = ON)')
+          ELSE IF EXISTS (SELECT 1 FROM sys.security_policies WHERE name = 'orders_rls' AND is_enabled = 0)
+          ALTER SECURITY POLICY sec.orders_rls WITH (STATE = ON)`,
   },
   {
     step: 'Mask sales.orders.account_number',

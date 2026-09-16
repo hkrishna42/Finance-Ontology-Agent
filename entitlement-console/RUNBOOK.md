@@ -71,6 +71,7 @@ If it says **Not connected**, the error text tells you which of these it is:
 | `sqlcmd not found on PATH` | the sqlcmd backend needs the CLI — install go-sqlcmd, or switch to ODBC with `EC_DB_DRIVER=odbc` (+ driver) |
 | `Can't open lib 'ODBC Driver 18 …' : file not found` | ODBC backend selected but the driver isn't installed — do the driver step in section 0, then `npm ci` |
 | `AADSTS…` / `Login failed` / `permission denied` | auth — `az login` as an account the warehouse is shared with, or set the `AZURE_*` service-principal vars |
+| Overview shows the RLS policy missing / rows aren't filtered | the policy exists but is disabled — **re-run setup** (it now forces `STATE = ON`), or manually: `ALTER SECURITY POLICY sec.orders_rls WITH (STATE = ON)` |
 | `Connection lost - socket hang up` | you pinned the old `mssql`/`tedious` path; it cannot reach Fabric — use a backend above. `node scripts/diag-connect.js` documents that tedious symptom |
 
 ## 4. Bootstrap the demo
