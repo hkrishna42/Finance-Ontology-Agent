@@ -185,7 +185,7 @@ router.get('/preview', async (req, res, next) => {
       )
     ).recordset;
 
-    const tableWide = grants.some((g) => g.minor_id === 0);
+    const tableWide = grants.some((g) => Number(g.minor_id) === 0);
     const visibleColumns = tableWide ? allCols : grants.filter((g) => g.col).map((g) => g.col);
 
     const regions = (

@@ -38,7 +38,7 @@ router.get('/columns', async (req, res, next) => {
        ORDER BY c.column_id`,
       { schema, table }
     );
-    res.json(r.recordset.map((c) => ({ name: c.name, type: c.type, masked: Boolean(c.masked) })));
+    res.json(r.recordset.map((c) => ({ name: c.name, type: c.type, masked: Number(c.masked) === 1 })));
   } catch (err) { next(err); }
 });
 

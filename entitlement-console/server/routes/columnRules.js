@@ -26,7 +26,7 @@ router.get('/column-rules', async (req, res, next) => {
     const byPrincipal = {};
     for (const row of r.recordset) {
       byPrincipal[row.principal] ||= { principal: row.principal, tableWide: false, columns: [] };
-      if (row.minor_id === 0) byPrincipal[row.principal].tableWide = true;
+      if (Number(row.minor_id) === 0) byPrincipal[row.principal].tableWide = true;
       else if (row.col) byPrincipal[row.principal].columns.push(row.col);
     }
     res.json(Object.values(byPrincipal));
