@@ -1,7 +1,8 @@
 const express = require('express');
-const { q, authMode } = require('../db');
+const { q, authMode, getTarget, setTarget } = require('../db');
 const { assertEmail, bracket, assertTableExists } = require('../validate');
 const { logChange, changed } = require('../audit');
+const { listWarehouses } = require('../fabric');
 
 const router = express.Router();
 
@@ -97,12 +98,42 @@ const BOOTSTRAP = [
 ];
 
 router.get('/health', (_req, res) => {
+  const t = getTarget();
   res.json({
-    configured: Boolean(process.env.FABRIC_SQL_SERVER && process.env.FABRIC_SQL_DATABASE),
-    server: process.env.FABRIC_SQL_SERVER || null,
-    database: process.env.FABRIC_SQL_DATABASE || null,
+    configured: Boolean(t.server && t.database),
+    server: t.server || null,
+    database: t.database || null,
     authMode: authMode(),
   });
+});
+
+// List the signed-in admin's Fabric warehouses for the picker (lakehouses deferred).
+router.get('/warehouses', async (_req, res, next) => {
+  try {
+    const t = getTarget();
+    const list = await listWarehouses();
+    const current = (w) => Boolean(t.server && w.server.toLowerCase() === t.server.toLowerCase() && w.database.toLowerCase() === (t.database || '').toLowerCase());
+    res.json(list.map((w) => ({ ...w, current: current(w) })));
+  } catch (err) { next(err); }
+});
+
+// Switch the active warehouse at runtime. Only a warehouse the admin actually has may be selected.
+router.post('/target', async (req, res, next) => {
+  try {
+    const server = String(req.body.server || '').trim();
+    const database = String(req.body.database || '').trim();
+    if (!server || !database) return res.status(400).json({ error: 'server and database are required' });
+    const list = await listWarehouses();
+    const match = list.find((w) => w.server.toLowerCase() === server.toLowerCase() && w.database.toLowerCase() === database.toLowerCase());
+    if (!match) return res.status(400).json({ error: 'That warehouse is not among your Fabric workspaces.' });
+    await setTarget({ server, database });
+    try {
+      const me = (await q('SELECT USER_NAME() AS me')).recordset[0].me;
+      res.json({ ok: true, server, database, connected: true, me });
+    } catch (e) {
+      res.json({ ok: true, server, database, connected: false, error: e.message });
+    }
+  } catch (err) { next(err); }
 });
 
 router.get('/status', async (_req, res) => {

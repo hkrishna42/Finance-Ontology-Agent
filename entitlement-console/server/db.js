@@ -20,8 +20,21 @@ const execFileP = promisify(execFile);
 const SEP = '\x1f'; // unit separator: never appears in sqlcmd diagnostics, Fabric info tokens, or our data
 const SQLCMD = process.env.SQLCMD_BIN || 'sqlcmd';
 
+// Active target: an in-memory override chosen at runtime (warehouse picker), else the .env values.
+// Restart falls back to .env. Single target per process — fine for a single-operator console.
+let override = null;
+function target() {
+  return override || { server: process.env.FABRIC_SQL_SERVER, database: process.env.FABRIC_SQL_DATABASE };
+}
+function getTarget() { return target(); }
+async function setTarget(t) {
+  override = t && t.server && t.database ? { server: t.server, database: t.database } : null;
+  if (poolPromise) { try { const p = await poolPromise; if (p && p.close) await p.close(); } catch (_) {} poolPromise = null; }
+}
+
 function isConfigured() {
-  return Boolean(process.env.FABRIC_SQL_SERVER && process.env.FABRIC_SQL_DATABASE);
+  const t = target();
+  return Boolean(t.server && t.database);
 }
 function assertConfigured() {
   if (!isConfigured()) {
@@ -77,7 +90,8 @@ function rewrite(text, params, subst) {
 function buildConnectionString() {
   assertConfigured();
   const driver = process.env.ODBC_DRIVER || 'ODBC Driver 18 for SQL Server';
-  const base = `Driver={${driver}};Server=${process.env.FABRIC_SQL_SERVER},1433;Database=${process.env.FABRIC_SQL_DATABASE};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;`;
+  const t = target();
+  const base = `Driver={${driver}};Server=${t.server},1433;Database=${t.database};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;`;
   return usingSpn()
     ? base + `Authentication=ActiveDirectoryServicePrincipal;UID=${process.env.AZURE_CLIENT_ID};PWD=${process.env.AZURE_CLIENT_SECRET};`
     : base + 'Authentication=ActiveDirectoryDefault;';
@@ -130,8 +144,8 @@ function sqlcmdArgs() {
   // varies across sqlcmd builds): lit() and bracket() reject control chars (CR/LF) and '$(', so no
   // attacker-controlled value can inject a preprocessor trigger. Every identifier is also bracket()ed.
   return [
-    '-S', process.env.FABRIC_SQL_SERVER,
-    '-d', process.env.FABRIC_SQL_DATABASE,
+    '-S', target().server,
+    '-d', target().database,
     '--authentication-method', 'ActiveDirectoryDefault', // SPN vars, if set, are picked up by this chain
     '-s', SEP, '-W', '-b', '-l', '60',
   ];
@@ -192,4 +206,4 @@ async function q(text, params = {}) {
   return pickBackend() === 'odbc' ? qOdbc(text, params) : qSqlcmd(text, params);
 }
 
-module.exports = { q, getPool, authMode, toPositional, inlineParams, lit, parseSqlcmd, rowsAffected };
+module.exports = { q, getPool, authMode, getTarget, setTarget, toPositional, inlineParams, lit, parseSqlcmd, rowsAffected };

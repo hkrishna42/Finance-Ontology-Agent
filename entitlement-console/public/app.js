@@ -60,6 +60,13 @@ async function renderOverview() {
   view.innerHTML = `
     <h1>Overview &amp; setup</h1>
     <div class="pagesub">One entitlement table decides who sees which rows and columns. This console reads it, edits it, and pushes column rules.</div>
+    <div class="lbl">Warehouse</div>
+    <div class="panel">
+      <div class="formrow">
+        <select id="whSelect"><option value="">Loading warehouses…</option></select>
+        <span class="note" id="whNote">Pick the warehouse to manage. From your Fabric workspaces (needs <code>az login</code>).</span>
+      </div>
+    </div>
     <div class="lbl">Connection</div>
     <div class="panel">
       <table>
@@ -84,6 +91,28 @@ async function renderOverview() {
       </div>
       <div id="setupOut"></div>
     </div>`;
+  // Warehouse picker: list the admin's warehouses; switching one reconnects the console to it.
+  (async () => {
+    try {
+      const whs = await api('/warehouses');
+      const opts = whs.map((w) => `<option value="${esc(w.server)}|${esc(w.database)}" ${w.current ? 'selected' : ''}>${esc(w.workspace)} · ${esc(w.name)}</option>`).join('');
+      $('#whSelect').innerHTML = (whs.some((w) => w.current) ? '' : '<option value="">— select a warehouse —</option>') + opts;
+    } catch (e) {
+      $('#whSelect').innerHTML = '<option value="">unavailable</option>';
+      $('#whNote').innerHTML = errBox(e);
+    }
+  })();
+  $('#whSelect').onchange = async () => {
+    const [server, database] = ($('#whSelect').value || '').split('|');
+    if (!server || !database) return;
+    $('#whNote').textContent = 'Switching…';
+    try {
+      const r = await api('/target', { method: 'POST', body: { server, database } });
+      toast('WAREHOUSE', `Now managing ${database}${r.connected ? ' · ' + r.me : ''}.`);
+      await refreshStatus();
+      renderOverview();
+    } catch (e) { $('#whNote').innerHTML = errBox(e); }
+  };
   $('#btnSetup').onclick = async () => {
     $('#btnSetup').disabled = true;
     try {
